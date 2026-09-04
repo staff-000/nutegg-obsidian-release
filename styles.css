@@ -1,0 +1,99 @@
+/* NutEgg Plugin Styles */
+
+.nutegg-description {
+  color: var(--text-muted);
+  margin-bottom: 1em;
+}
+
+.nutegg-status {
+  background: var(--background-secondary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-size: 0.9em;
+}
+
+/* Server status indicator */
+.nutegg-server-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.nutegg-server-status .indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-green);
+}
+
+.nutegg-server-status .indicator.offline {
+  background: var(--color-red);
+}
+
+/* Decision modal buttons */
+.nutegg-decision-modal .setting-item {
+  border-top: none;
+}
+
+.nutegg-decision-modal button {
+  min-width: 140px;
+}
+
+/* Merge widget banner in egg notes */
+.nutegg-merge-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 12px 0 16px 0;
+}
+
+.nutegg-merge-badge {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.nutegg-merge-btn {
+  font-size: 0.85em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: opacity 0.15s ease;
+}
+
+.nutegg-merge-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
+/* Merge widget in editing mode — a block below the # Unprocessed heading.
+   Reuses the reading-mode container classes so both look identical; only
+   the spacing is tuned for the tighter editor layout. */
+.nutegg-merge-editor-widget {
+  margin: 6px 0 14px 0;
+  font-size: 0.7em;
+  padding: 6px 12px;
+}
+
+/* Status bar credit item */
+.nutegg-statusbar-credit {
+  cursor: pointer;
+}
+.nutegg-statusbar-credit:hover {
+  color: var(--text-accent);
+}
+
+
+.nutegg-merge-editor-widget .nutegg-merge-btn {
+  padding: 4px 12px;
+}
