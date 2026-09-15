@@ -35,8 +35,88 @@ var egg_parser_exports = {};
 __export(egg_parser_exports, {
   EggParser: () => EggParser,
   KNOWLEDGE_HEADING: () => KNOWLEDGE_HEADING,
-  UNPROCESSED_HEADING: () => UNPROCESSED_HEADING
+  UNPROCESSED_HEADING: () => UNPROCESSED_HEADING,
+  extractEggLanguage: () => extractEggLanguage,
+  insertEggLanguage: () => insertEggLanguage,
+  isEggPath: () => isEggPath,
+  matchesEggFormat: () => matchesEggFormat
 });
+function extractEggLanguage(content) {
+  if (!content)
+    return "";
+  const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (fmMatch) {
+    for (const line of fmMatch[1].split(/\r?\n/)) {
+      const kv = line.match(/^(\w+):\s*(.*)$/);
+      if (kv && kv[1].toLowerCase() === "language") {
+        return kv[2].trim().replace(/^["'](.*)["']$/, "$1");
+      }
+    }
+  }
+  const directMatch = content.match(/^language:\s*["']?([^"'\r\n]+)["']?/im);
+  return directMatch ? directMatch[1].trim() : "";
+}
+function insertEggLanguage(content, language, options) {
+  if (!content || !language)
+    return content;
+  const existing = extractEggLanguage(content);
+  if (existing && !options?.overwrite)
+    return content;
+  if (existing && options?.overwrite) {
+    return content.replace(/^language:\s*["']?[^"'\r\n]*["']?/im, `language: "${language}"`);
+  }
+  if (/^language:\s*["']?["']?\s*$/m.test(content)) {
+    return content.replace(/^language:\s*["']?["']?\s*$/m, `language: "${language}"`);
+  }
+  const fmRegex = /^(---\r?\n)([\s\S]*?)(\r?\n---)/;
+  const match = content.match(fmRegex);
+  if (match) {
+    const opening = match[1];
+    const body = match[2];
+    const closing = match[3];
+    const separator = body.endsWith("\n") || body.length === 0 ? "" : "\n";
+    const newBody = `${body}${separator}language: "${language}"`;
+    return content.replace(fmRegex, `${opening}${newBody}${closing}`);
+  }
+  return `---
+language: "${language}"
+---
+
+${content}`;
+}
+function isEggPath(path, vaultFolder = "nutegg") {
+  if (!path || typeof path !== "string")
+    return false;
+  const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const folder = (vaultFolder || "").replace(/^\/+|\/+$/g, "");
+  if (folder) {
+    if (!normalized.startsWith(folder + "/"))
+      return false;
+    const rel = normalized.slice(folder.length + 1);
+    if (rel.includes("/"))
+      return false;
+    if (rel.startsWith("_") || !rel.toLowerCase().endsWith(".md"))
+      return false;
+    return true;
+  } else {
+    if (normalized.includes("/"))
+      return false;
+    if (normalized.startsWith("_") || !normalized.toLowerCase().endsWith(".md"))
+      return false;
+    return true;
+  }
+}
+function matchesEggFormat(content) {
+  if (!content || typeof content !== "string")
+    return false;
+  if (/^---\r?\n[\s\S]*?\btopic:\s*["']?.+["']?[\s\S]*?\r?\n---/m.test(content)) {
+    return true;
+  }
+  if (content.includes("# Knowledge") || content.includes("# Unprocessed") || content.includes("[!abstract]")) {
+    return true;
+  }
+  return false;
+}
 var KNOWLEDGE_HEADING, UNPROCESSED_HEADING, EggParser;
 var init_egg_parser = __esm({
   "src/egg-parser.ts"() {
@@ -48,14 +128,17 @@ var init_egg_parser = __esm({
       constructor(plugin) {
         this.plugin = plugin;
       }
-      async readEgg(fileName) {
+      async readEgg(fileName, fallbackDescription) {
         let file = this.plugin.app.vault.getAbstractFileByPath(fileName);
         if (!file && !fileName.includes("/")) {
           const parentDir = this.plugin.settings.indexFile.replace(/\/[^/]+$/, "");
           file = this.plugin.app.vault.getAbstractFileByPath(`${parentDir}/${fileName}`);
         }
         if (!file) {
-          const allFiles = this.plugin.app.vault.getMarkdownFiles?.() || [];
+          const folder = this.plugin.vaultFolder || "nutegg";
+          const allFiles = (this.plugin.app.vault.getMarkdownFiles?.() || []).filter(
+            (f) => isEggPath(f.path, folder)
+          );
           const base = fileName.split("/").pop().toLowerCase();
           const match = allFiles.find(
             (f) => f.path.split("/").pop().toLowerCase() === base
@@ -68,14 +151,38 @@ var init_egg_parser = __esm({
           return null;
         }
         const content = await this.plugin.app.vault.read(file);
-        return this.parseEggFile(file.path || fileName, content);
+        const parsed = this.parseEggFile(file.path || fileName, content);
+        if (fallbackDescription && !parsed.indexDescription) {
+          parsed.indexDescription = fallbackDescription;
+        }
+        if (!parsed.language) {
+          const settingLang = this.plugin.settings?.contentOutputLanguage;
+          const pluginLang = settingLang && settingLang !== "same-as-content" ? settingLang.trim() : "";
+          if (pluginLang) {
+            parsed.language = pluginLang;
+            const updated = insertEggLanguage(content, pluginLang);
+            if (updated !== content) {
+              try {
+                await this.plugin.app.vault.modify(file, updated);
+              } catch (err) {
+                console.warn(
+                  `[NutEgg] Could not persist filled language to ${file.path}:`,
+                  err
+                );
+              }
+            }
+          }
+        }
+        return parsed;
       }
       async readEggs(entries) {
         const eggs = [];
         for (const entry of entries) {
-          const egg = await this.readEgg(entry.fileName);
-          if (egg)
+          const egg = await this.readEgg(entry.fileName, entry.description);
+          if (egg) {
+            egg.indexDescription = entry.description;
             eggs.push(egg);
+          }
         }
         return eggs;
       }
@@ -83,13 +190,15 @@ var init_egg_parser = __esm({
         const result = {
           fileName,
           topic: "Unknown",
+          language: "",
           scope: "",
           actionGuide: "",
           keyQuestions: [],
           rejectionCriteria: [],
           formattingRules: "",
           knowledge: "",
-          unprocessed: ""
+          unprocessed: "",
+          indexDescription: ""
         };
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (fmMatch) {
@@ -101,6 +210,8 @@ var init_egg_parser = __esm({
             const value = kv[2].trim().replace(/^"(.*)"$/, "$1");
             if (key === "topic")
               result.topic = value;
+            if (key === "language")
+              result.language = value;
           }
         }
         const callout = this.extractCallout(content);
@@ -390,63 +501,181 @@ __export(main_exports, {
   default: () => NutEggPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian = require("obsidian");
 
 // src/ai-client.ts
 var PROVIDER_CATALOG = {
+  local: {
+    id: "local",
+    label: "Local LLM (Ollama, LM Studio, etc.)",
+    officialEndpoint: "http://127.0.0.1:11434/v1/chat/completions",
+    apiFormat: "openai-compatible",
+    keyPlaceholder: "Optional for local LLMs",
+    openrouterPrefix: ""
+  },
+  openrouter: {
+    id: "openrouter",
+    label: "OpenRouter (Multi-Provider)",
+    officialEndpoint: "https://openrouter.ai/api/v1/chat/completions",
+    apiFormat: "openai-compatible",
+    defaultModel: "openai/gpt-6-astra",
+    families: [
+      {
+        id: "openai",
+        label: "OpenAI GPT & Reasoning",
+        defaultModel: "openai/gpt-6-astra",
+        models: [
+          "openai/gpt-6-astra",
+          "openai/gpt-5.6-sol",
+          "openai/o3-mini",
+          "openai/gpt-4o"
+        ]
+      },
+      {
+        id: "anthropic",
+        label: "Anthropic Claude",
+        defaultModel: "anthropic/claude-sonnet-5",
+        models: [
+          "anthropic/claude-fable-5-1",
+          "anthropic/claude-opus-5",
+          "anthropic/claude-sonnet-5"
+        ]
+      },
+      {
+        id: "deepseek",
+        label: "DeepSeek",
+        defaultModel: "deepseek/deepseek-r1",
+        models: ["deepseek/deepseek-r1", "deepseek/deepseek-chat"]
+      },
+      {
+        id: "google",
+        label: "Google Gemini",
+        defaultModel: "google/gemini-2.5-flash",
+        models: [
+          "google/gemini-2.5-flash",
+          "google/gemini-2.5-pro"
+        ]
+      },
+      {
+        id: "meta",
+        label: "Meta Llama",
+        defaultModel: "meta-llama/llama-3.3-70b-instruct",
+        models: [
+          "meta-llama/llama-3.3-70b-instruct"
+        ]
+      },
+      {
+        id: "qwen",
+        label: "Qwen",
+        defaultModel: "qwen/qwen-2.5-72b-instruct",
+        models: [
+          "qwen/qwen-2.5-72b-instruct"
+        ]
+      },
+      {
+        id: "custom",
+        label: "Custom OpenRouter Model",
+        defaultModel: "openai/gpt-6-astra",
+        models: []
+      }
+    ],
+    models: [
+      "openai/gpt-6-astra",
+      "openai/gpt-5.6-sol",
+      "openai/o3-mini",
+      "openai/gpt-4o",
+      "anthropic/claude-fable-5-1",
+      "anthropic/claude-opus-5",
+      "anthropic/claude-sonnet-5",
+      "deepseek/deepseek-r1",
+      "deepseek/deepseek-chat",
+      "google/gemini-2.5-flash",
+      "google/gemini-2.5-pro",
+      "meta-llama/llama-3.3-70b-instruct",
+      "qwen/qwen-2.5-72b-instruct"
+    ],
+    keyPlaceholder: "sk-or-...",
+    openrouterPrefix: ""
+  },
   anthropic: {
     id: "anthropic",
     label: "Anthropic (Claude)",
     officialEndpoint: "https://api.anthropic.com/v1/messages",
     apiFormat: "anthropic",
+    defaultModel: "claude-sonnet-5",
     models: [
+      "claude-fable-5-1",
       "claude-opus-5",
       "claude-sonnet-5",
-      "claude-haiku-4-5-20251001"
+      "claude-haiku-4-5-20251001",
+      "claude-3-7-sonnet-20250219",
+      "claude-3-5-sonnet-20241022"
     ],
     keyPlaceholder: "sk-ant-...",
     openrouterPrefix: "anthropic/"
-  },
-  deepseek: {
-    id: "deepseek",
-    label: "DeepSeek",
-    officialEndpoint: "https://api.deepseek.com/v1/chat/completions",
-    apiFormat: "openai-compatible",
-    models: ["deepseek-chat", "deepseek-reasoner"],
-    keyPlaceholder: "sk-...",
-    openrouterPrefix: "deepseek/"
-  },
-  gemini: {
-    id: "gemini",
-    label: "Google Gemini",
-    officialEndpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    apiFormat: "openai-compatible",
-    models: [
-      "gemini-2.5-pro",
-      "gemini-2.5-flash",
-      "gemini-2.0-flash"
-    ],
-    keyPlaceholder: "AIza...",
-    openrouterPrefix: "google/"
   },
   openai: {
     id: "openai",
     label: "OpenAI",
     officialEndpoint: "https://api.openai.com/v1/chat/completions",
     apiFormat: "openai-compatible",
-    models: ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1"],
+    defaultModel: "gpt-6-astra",
+    models: [
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "o3-mini",
+      "o1",
+      "gpt-4o",
+      "gpt-4o-mini"
+    ],
     keyPlaceholder: "sk-...",
     openrouterPrefix: "openai/"
+  },
+  gemini: {
+    id: "gemini",
+    label: "Google Gemini",
+    officialEndpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    apiFormat: "openai-compatible",
+    defaultModel: "gemini-2.5-flash",
+    models: [
+      "gemini-2.5-flash",
+      "gemini-2.5-pro",
+      "gemini-2.5-flash-lite",
+      "gemini-2.0-flash",
+      "gemini-2.0-flash-lite"
+    ],
+    keyPlaceholder: "AIza...",
+    openrouterPrefix: "google/"
+  },
+  deepseek: {
+    id: "deepseek",
+    label: "DeepSeek",
+    officialEndpoint: "https://api.deepseek.com/v1/chat/completions",
+    apiFormat: "openai-compatible",
+    defaultModel: "deepseek-chat",
+    models: [
+      "deepseek-chat",
+      "deepseek-reasoner",
+      "deepseek-flash"
+    ],
+    keyPlaceholder: "sk-...",
+    openrouterPrefix: "deepseek/"
   },
   kimi: {
     id: "kimi",
     label: "Kimi (Moonshot)",
     officialEndpoint: "https://api.moonshot.cn/v1/chat/completions",
     apiFormat: "openai-compatible",
+    defaultModel: "kimi-k3",
     models: [
+      "kimi-k3",
+      "kimi-k2.7-code",
+      "kimi-k2.7-code-highspeed",
       "moonshot-v1-8k",
       "moonshot-v1-32k",
       "moonshot-v1-128k"
@@ -459,7 +688,16 @@ var PROVIDER_CATALOG = {
     label: "Zhipu (GLM)",
     officialEndpoint: "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     apiFormat: "openai-compatible",
-    models: ["glm-4-plus", "glm-4-air", "glm-4-flash"],
+    defaultModel: "glm-5.3",
+    models: [
+      "glm-5.3",
+      "glm-5",
+      "glm-5-turbo",
+      "glm-4.7",
+      "glm-4-plus",
+      "glm-4-air",
+      "glm-4-flash"
+    ],
     keyPlaceholder: "...",
     openrouterPrefix: "zhipu/"
   },
@@ -468,21 +706,55 @@ var PROVIDER_CATALOG = {
     label: "Qwen (Tongyi)",
     officialEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     apiFormat: "openai-compatible",
-    models: ["qwen-max", "qwen-plus", "qwen-turbo"],
+    defaultModel: "qwen3-max",
+    models: [
+      "qwen3-max",
+      "qwen3-plus",
+      "qwen3-flash",
+      "qwen-max",
+      "qwen-plus",
+      "qwen-turbo"
+    ],
     keyPlaceholder: "sk-...",
     openrouterPrefix: "qwen/"
   }
 };
+function findOpenRouterFamily(modelName) {
+  const families = PROVIDER_CATALOG.openrouter.families || [];
+  if (families.length === 0)
+    return void 0;
+  return families.find((f) => f.models.includes(modelName)) || families[0];
+}
+function isAIConfigured(settings) {
+  if (settings.aiProvider === "local") {
+    return Boolean(
+      settings.localEndpoint && settings.localEndpoint.trim().length > 0 || PROVIDER_CATALOG.local.officialEndpoint
+    );
+  }
+  return Boolean(settings.aiApiKey && settings.aiApiKey.trim().length > 0);
+}
 var OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 function resolveConfig(settings) {
-  const provider = PROVIDER_CATALOG[settings.aiProvider];
-  const source = settings.aiSource;
-  if (source === "openrouter") {
-    const model = provider.openrouterPrefix + settings.aiModel;
+  const isLocal = settings.aiProvider === "local";
+  const isOpenRouter = settings.aiProvider === "openrouter";
+  if (isLocal) {
+    const isOllama = settings.localApiType === "ollama";
+    const defaultEndpoint = isOllama ? "http://127.0.0.1:11434/api/chat" : "http://127.0.0.1:11434/v1/chat/completions";
     return {
+      provider: "local",
+      endpoint: settings.localEndpoint || defaultEndpoint,
+      apiKey: settings.aiApiKey || "",
+      model: settings.aiModel?.trim() || "default",
+      apiFormat: isOllama ? "ollama" : "openai-compatible",
+      extraHeaders: {}
+    };
+  }
+  if (isOpenRouter) {
+    return {
+      provider: "openrouter",
       endpoint: OPENROUTER_ENDPOINT,
       apiKey: settings.aiApiKey,
-      model,
+      model: settings.aiModel || "openai/gpt-6-astra",
       apiFormat: "openai-compatible",
       extraHeaders: {
         "HTTP-Referer": "nutegg-obsidian-plugin",
@@ -490,10 +762,12 @@ function resolveConfig(settings) {
       }
     };
   }
+  const provider = PROVIDER_CATALOG[settings.aiProvider] || PROVIDER_CATALOG.anthropic;
   return {
+    provider: settings.aiProvider,
     endpoint: provider.officialEndpoint,
     apiKey: settings.aiApiKey,
-    model: settings.aiModel,
+    model: settings.aiModel || provider.defaultModel || "",
     apiFormat: provider.apiFormat,
     extraHeaders: provider.apiFormat === "anthropic" ? { "anthropic-version": "2023-06-01" } : {}
   };
@@ -541,7 +815,7 @@ var AIClient = class {
    */
   async checkCredit(settings) {
     const provider = PROVIDER_CATALOG[settings.aiProvider];
-    const source = settings.aiSource;
+    const source = settings.aiProvider === "openrouter" ? "openrouter" : "official";
     const apiKey = settings.aiApiKey;
     const model = settings.aiModel;
     const baseInfo = {
@@ -552,6 +826,46 @@ var AIClient = class {
       hasBalance: false,
       statusText: "Checking..."
     };
+    if (settings.aiProvider === "local") {
+      const isOllama = settings.localApiType === "ollama";
+      const defaultEndpoint = isOllama ? "http://127.0.0.1:11434/api/chat" : "http://127.0.0.1:11434/v1/chat/completions";
+      const endpoint = settings.localEndpoint || defaultEndpoint;
+      const pingEndpoint = isOllama ? endpoint.replace(/\/api\/chat\/?$/, "/api/tags") : endpoint.replace(/\/chat\/completions\/?$/, "/models");
+      try {
+        const headers = { Accept: "application/json" };
+        if (apiKey)
+          headers["Authorization"] = `Bearer ${apiKey}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const resp = await fetch(pingEndpoint, {
+          method: "GET",
+          headers,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+          const typeLabel = isOllama ? "Ollama Native" : "OpenAI-compatible";
+          return {
+            ...baseInfo,
+            hasBalance: false,
+            statusText: `Connected [${typeLabel}]`
+          };
+        } else {
+          return {
+            ...baseInfo,
+            hasBalance: false,
+            statusText: `Local LLM (${resp.status} ${resp.statusText})`
+          };
+        }
+      } catch {
+        return {
+          ...baseInfo,
+          hasBalance: false,
+          statusText: "Offline \u2014 ensure local runner is running",
+          error: "Cannot connect to local LLM server"
+        };
+      }
+    }
     if (!apiKey) {
       return {
         ...baseInfo,
@@ -559,7 +873,7 @@ var AIClient = class {
         error: "No API key"
       };
     }
-    if (source === "openrouter") {
+    if (settings.aiProvider === "openrouter") {
       try {
         const resp = await fetch("https://openrouter.ai/api/v1/credits", {
           headers: {
@@ -663,7 +977,7 @@ var AIClient = class {
     };
   }
   async chat(prompt, maxTokens) {
-    if (!this.config.apiKey) {
+    if (this.config.provider !== "local" && !this.config.apiKey) {
       throw new AIError(
         "no_api_key",
         "No AI API key configured. Open Obsidian Settings \u2192 NutEgg, enable Developer Mode, and add your API key."
@@ -672,7 +986,48 @@ var AIClient = class {
     if (this.config.apiFormat === "anthropic") {
       return this.chatAnthropic(prompt, maxTokens);
     }
+    if (this.config.apiFormat === "ollama") {
+      return this.chatOllama(prompt, maxTokens);
+    }
     return this.chatOpenAICompatible(prompt, maxTokens);
+  }
+  // --- Ollama-native format (/api/chat) ---
+  async chatOllama(prompt, maxTokens) {
+    let response;
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.config.extraHeaders
+    };
+    if (this.config.apiKey && this.config.apiKey.trim().length > 0) {
+      headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+    }
+    const bodyPayload = {
+      model: this.config.model || "default",
+      messages: [{ role: "user", content: prompt }],
+      stream: false,
+      options: {
+        num_predict: maxTokens,
+        temperature: 0.3
+      }
+    };
+    try {
+      response = await fetch(this.config.endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bodyPayload)
+      });
+    } catch {
+      throw new AIError(
+        "network_error",
+        "Cannot reach Ollama server. Ensure Ollama is running and the endpoint is accessible."
+      );
+    }
+    if (!response.ok) {
+      const err = await response.text();
+      throw classifyError(response.status, err);
+    }
+    const data = await response.json();
+    return data?.message?.content || "";
   }
   // --- Anthropic-native format ---
   async chatAnthropic(prompt, maxTokens) {
@@ -707,24 +1062,32 @@ var AIClient = class {
   // --- OpenAI-compatible format ---
   async chatOpenAICompatible(prompt, maxTokens) {
     let response;
+    const headers = {
+      "Content-Type": "application/json",
+      ...this.config.extraHeaders
+    };
+    if (this.config.apiKey && this.config.apiKey.trim().length > 0) {
+      headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+    }
+    const bodyPayload = {
+      model: this.config.model,
+      messages: [{ role: "user", content: prompt }]
+    };
+    if (this.config.provider === "openai") {
+      bodyPayload.max_completion_tokens = maxTokens;
+    } else {
+      bodyPayload.max_tokens = maxTokens;
+    }
     try {
       response = await fetch(this.config.endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
-          ...this.config.extraHeaders
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          max_completion_tokens: maxTokens,
-          messages: [{ role: "user", content: prompt }]
-        })
+        headers,
+        body: JSON.stringify(bodyPayload)
       });
     } catch {
       throw new AIError(
         "network_error",
-        "Cannot reach the AI API. Check your internet connection. If using a custom endpoint, verify the URL is correct."
+        "Cannot reach the AI API. Check your network or local LLM server status. If using a custom endpoint, verify the URL is correct."
       );
     }
     if (!response.ok) {
@@ -732,7 +1095,24 @@ var AIClient = class {
       throw classifyError(response.status, err);
     }
     const data = await response.json();
-    return data?.choices?.[0]?.message?.content || "";
+    const choice = data?.choices?.[0];
+    const content = choice?.message?.content || "";
+    const reasoning = choice?.message?.reasoning_content || "";
+    const finishReason = choice?.finish_reason;
+    if (finishReason === "length") {
+      const reasoningTokens = data?.usage?.completion_tokens_details?.reasoning_tokens || 0;
+      const completionTokens = data?.usage?.completion_tokens || 0;
+      console.warn(
+        `[NutEgg] AI response was cut off by max_tokens limit (finish_reason: "length"). Reasoning tokens: ${reasoningTokens}, Completion tokens: ${completionTokens}, Content length: ${content.length}`
+      );
+      if (!content.trim() && reasoning) {
+        throw new AIError(
+          "rate_limited",
+          `The AI model (${this.config.model}) spent all its tokens on internal reasoning before writing the answer. Try increasing Max Tokens in settings.`
+        );
+      }
+    }
+    return content;
   }
 };
 
@@ -740,15 +1120,23 @@ var AIClient = class {
 var DEFAULT_SETTINGS = {
   developerMode: false,
   aiProvider: "anthropic",
-  aiSource: "official",
   aiApiKey: "",
   aiModel: "claude-sonnet-5",
+  localEndpoint: "http://127.0.0.1:11434/v1/chat/completions",
+  localApiType: "openai",
   serverPort: 27123,
   rawFolder: "nutegg/_raw",
-  indexFile: "nutegg/_index.md"
+  indexFile: "nutegg/_index.md",
+  workflowFolder: "nutegg/_workflow",
+  workflowHashes: {},
+  chunkWindowChars: 3e4,
+  sectionGridSeconds: 300,
+  contentAnalysisMaxTokens: 16384,
+  contentOutputLanguage: "same-as-content"
 };
 var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
   plugin;
+  customLanguageMode = false;
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -757,9 +1145,17 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl } = this;
     const settings = this.plugin.settings;
     const provider = PROVIDER_CATALOG[settings.aiProvider];
-    const isOpenRouter = settings.aiSource === "openrouter";
+    const isOpenRouter = settings.aiProvider === "openrouter";
     containerEl.empty();
     containerEl.createEl("h2", { text: "NutEgg Settings" });
+    new import_obsidian.Setting(containerEl).setName("Chrome Extension Companion").setDesc("Capture and analyze articles, YouTube videos, and tweets directly from your browser into Obsidian.").addButton(
+      (btn) => btn.setButtonText("Get Chrome Extension \u2197").setCta().onClick(() => {
+        window.open(
+          "https://chromewebstore.google.com/detail/nutegg/bmdmdiicembobejibggoeiahaonphcol",
+          "_blank"
+        );
+      })
+    );
     containerEl.createEl("h3", { text: "Vault Paths" });
     new import_obsidian.Setting(containerEl).setName("Raw Content Folder").setDesc("Folder for saved raw content").addText(
       (text) => text.setPlaceholder("nutegg/_raw").setValue(settings.rawFolder).onChange(async (value) => {
@@ -773,6 +1169,20 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Workflow Engine Folder").setDesc("Folder where AI prompts, schemas, and pipeline rules are stored as editable markdown files").addText(
+      (text) => text.setPlaceholder("nutegg/_workflow").setValue(settings.workflowFolder).onChange(async (value) => {
+        settings.workflowFolder = value.trim() || "nutegg/_workflow";
+        await this.plugin.saveSettings();
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Use Default Workflow Prompts").setDesc(
+      "Moves all current files in nutegg/_workflow to a timestamped backup folder under _backup/ and restores clean built-in prompt defaults."
+    ).addButton(
+      (btn) => btn.setButtonText("Use Defaults").setWarning().onClick(async () => {
+        await this.plugin.workflowManager.resetToDefaults();
+      })
+    );
+    this.displayLanguageSettings(containerEl, settings);
     new import_obsidian.Setting(containerEl).setName("Developer mode").setDesc(
       settings.developerMode ? "Advanced settings are visible below" : "Show advanced settings (AI provider, API key, server port)"
     ).addToggle((toggle) => {
@@ -788,63 +1198,208 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
     }
   }
   displayAdvancedSettings(containerEl, settings, provider, isOpenRouter) {
-    containerEl.createEl("h3", { text: "AI Provider" });
-    new import_obsidian.Setting(containerEl).setName("Model family").setDesc("Which company's models to use").addDropdown((dropdown) => {
+    const isLocal = settings.aiProvider === "local";
+    containerEl.createEl("h3", { text: isLocal ? "Local LLM Configuration" : "AI Model Configuration" });
+    new import_obsidian.Setting(containerEl).setName("1. AI Provider").setDesc("Choose a local runner (Ollama, LM Studio), OpenRouter, or cloud AI provider").addDropdown((dropdown) => {
       for (const [id, info] of Object.entries(PROVIDER_CATALOG)) {
         dropdown.addOption(id, info.label);
       }
       dropdown.setValue(settings.aiProvider);
       dropdown.onChange(async (value) => {
         settings.aiProvider = value;
-        const newProvider = PROVIDER_CATALOG[value];
-        settings.aiModel = newProvider.models[0];
+        if (settings.aiProvider === "local") {
+          settings.aiModel = "";
+          settings.aiModelFamily = void 0;
+        } else if (settings.aiProvider === "openrouter") {
+          const families = PROVIDER_CATALOG.openrouter.families || [];
+          const firstFamily = families[0];
+          settings.aiModelFamily = firstFamily?.id || "openai";
+          settings.aiModel = firstFamily?.defaultModel || "openai/gpt-6-astra";
+        } else {
+          const newProvider = PROVIDER_CATALOG[settings.aiProvider];
+          settings.aiModelFamily = void 0;
+          settings.aiModel = newProvider?.defaultModel || newProvider?.models?.[0] || "";
+        }
         await this.plugin.saveSettings();
         this.display();
       });
       return dropdown;
     });
-    new import_obsidian.Setting(containerEl).setName("API source").setDesc(
-      isOpenRouter ? "Using OpenRouter as proxy \u2014 one API key for all providers" : `Using ${provider.label} official API directly`
-    ).addDropdown((dropdown) => {
-      dropdown.addOption("official", `${provider.label} Official API`);
-      dropdown.addOption("openrouter", "OpenRouter");
-      dropdown.setValue(settings.aiSource);
-      dropdown.onChange(async (value) => {
-        settings.aiSource = value;
-        await this.plugin.saveSettings();
-        this.display();
+    if (isLocal) {
+      new import_obsidian.Setting(containerEl).setName("API Type").setDesc("Protocol format used by your local runner").addDropdown((dropdown) => {
+        dropdown.addOption("openai", "OpenAI-compatible (LM Studio, llama.cpp, vLLM, Ollama /v1)");
+        dropdown.addOption("ollama", "Ollama Native (/api/chat)");
+        dropdown.setValue(settings.localApiType || "openai");
+        dropdown.onChange(async (value) => {
+          settings.localApiType = value;
+          if (settings.localApiType === "ollama") {
+            if (!settings.localEndpoint || settings.localEndpoint.includes("/v1/chat/completions")) {
+              settings.localEndpoint = "http://127.0.0.1:11434/api/chat";
+            }
+          } else {
+            if (!settings.localEndpoint || settings.localEndpoint.includes("/api/chat")) {
+              settings.localEndpoint = "http://127.0.0.1:11434/v1/chat/completions";
+            }
+          }
+          await this.plugin.saveSettings();
+          this.display();
+        });
+        return dropdown;
       });
-      return dropdown;
-    });
-    new import_obsidian.Setting(containerEl).setName("API Key").setDesc(
-      isOpenRouter ? "Your OpenRouter API key (openrouter.ai/keys)" : `Your ${provider.label} API key`
-    ).addText((text) => {
-      text.setPlaceholder(
-        isOpenRouter ? "sk-or-..." : provider.keyPlaceholder
-      ).setValue(settings.aiApiKey).onChange(async (value) => {
-        settings.aiApiKey = value.trim();
-        await this.plugin.saveSettings();
+      new import_obsidian.Setting(containerEl).setName("Local Server Endpoint").setDesc(
+        settings.localApiType === "ollama" ? "Ollama native chat URL (default: http://127.0.0.1:11434/api/chat)" : "OpenAI-compatible chat completions URL for your local runner"
+      ).addText((text) => {
+        text.setPlaceholder(
+          settings.localApiType === "ollama" ? "http://127.0.0.1:11434/api/chat" : "http://127.0.0.1:11434/v1/chat/completions"
+        ).setValue(
+          settings.localEndpoint || (settings.localApiType === "ollama" ? "http://127.0.0.1:11434/api/chat" : "http://127.0.0.1:11434/v1/chat/completions")
+        ).onChange(async (value) => {
+          settings.localEndpoint = value.trim();
+          await this.plugin.saveSettings();
+        });
+        return text;
       });
-      return text;
-    });
-    const modelOptions = provider.models;
-    new import_obsidian.Setting(containerEl).setName("Model").setDesc(
-      isOpenRouter ? `Sent as "${provider.openrouterPrefix}${settings.aiModel}" via OpenRouter` : "Model to use for analysis"
-    ).addDropdown((dropdown) => {
-      for (const model of modelOptions) {
-        dropdown.addOption(model, model);
+      const presetContainer = containerEl.createDiv({
+        cls: "setting-item",
+        attr: { style: "padding-top: 0; margin-top: -10px; border-top: none;" }
+      });
+      const presetInfo = presetContainer.createDiv({
+        cls: "setting-item-description",
+        text: "Presets: "
+      });
+      presetInfo.style.fontSize = "0.85em";
+      presetInfo.style.color = "var(--text-muted)";
+      const presets = settings.localApiType === "ollama" ? [
+        { label: "Ollama Native (11434)", url: "http://127.0.0.1:11434/api/chat" }
+      ] : [
+        { label: "Ollama /v1 (11434)", url: "http://127.0.0.1:11434/v1/chat/completions" },
+        { label: "LM Studio (1234)", url: "http://127.0.0.1:1234/v1/chat/completions" },
+        { label: "llama.cpp / vLLM (8080)", url: "http://127.0.0.1:8080/v1/chat/completions" }
+      ];
+      for (const preset of presets) {
+        const btn = presetInfo.createEl("button", {
+          text: preset.label
+        });
+        btn.style.marginLeft = "6px";
+        btn.style.padding = "2px 8px";
+        btn.style.fontSize = "0.85em";
+        btn.style.cursor = "pointer";
+        btn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          settings.localEndpoint = preset.url;
+          await this.plugin.saveSettings();
+          this.display();
+        });
       }
-      if (!modelOptions.includes(settings.aiModel)) {
-        dropdown.addOption(settings.aiModel, settings.aiModel + " (custom)");
-      }
-      dropdown.setValue(settings.aiModel);
-      dropdown.onChange(async (value) => {
-        settings.aiModel = value;
-        await this.plugin.saveSettings();
+      new import_obsidian.Setting(containerEl).setName("API Key (Optional)").setDesc("Optional for local LLMs. Leave empty if your local server does not require authentication.").addText((text) => {
+        text.setPlaceholder("Optional for local LLMs").setValue(settings.aiApiKey).onChange(async (value) => {
+          settings.aiApiKey = value.trim();
+          await this.plugin.saveSettings();
+        });
+        return text;
       });
-      return dropdown;
-    });
-    const creditSetting = new import_obsidian.Setting(containerEl).setName("AI credit & balance").setDesc("Checking credit balance with provider...").addButton((btn) => {
+    } else if (isOpenRouter) {
+      const families = PROVIDER_CATALOG.openrouter.families || [];
+      let currentFamily = families.find((f) => f.id === settings.aiModelFamily);
+      if (!currentFamily) {
+        currentFamily = findOpenRouterFamily(settings.aiModel) || families[0];
+        if (currentFamily) {
+          settings.aiModelFamily = currentFamily.id;
+        }
+      }
+      new import_obsidian.Setting(containerEl).setName("2. Model Family").setDesc("Choose model vendor or architecture group on OpenRouter").addDropdown((dropdown) => {
+        for (const fam of families) {
+          dropdown.addOption(fam.id, fam.label);
+        }
+        if (currentFamily) {
+          dropdown.setValue(currentFamily.id);
+        }
+        dropdown.onChange(async (value) => {
+          settings.aiModelFamily = value;
+          const selectedFam = families.find((f) => f.id === value);
+          if (selectedFam) {
+            settings.aiModel = selectedFam.defaultModel;
+          }
+          await this.plugin.saveSettings();
+          this.display();
+        });
+        return dropdown;
+      });
+      const versionSetting = new import_obsidian.Setting(containerEl).setName("3. Model Version").setDesc(`Sent to OpenRouter as "${settings.aiModel}"`);
+      const familyModels = currentFamily?.models || [];
+      if (familyModels.length > 0) {
+        versionSetting.addDropdown((dropdown) => {
+          for (const model of familyModels) {
+            dropdown.addOption(model, model);
+          }
+          if (!familyModels.includes(settings.aiModel)) {
+            dropdown.addOption(settings.aiModel, `${settings.aiModel} (custom)`);
+          }
+          dropdown.setValue(settings.aiModel);
+          dropdown.onChange(async (value) => {
+            settings.aiModel = value;
+            await this.plugin.saveSettings();
+            this.display();
+          });
+          return dropdown;
+        });
+      }
+      versionSetting.addText((text) => {
+        text.setPlaceholder(currentFamily?.defaultModel || "Custom model tag (e.g. vendor/model-name)").setValue(settings.aiModel).onChange(async (value) => {
+          const trimmed = value.trim();
+          if (trimmed) {
+            settings.aiModel = trimmed;
+            await this.plugin.saveSettings();
+          }
+        });
+        return text;
+      });
+      new import_obsidian.Setting(containerEl).setName("API Key").setDesc("Your OpenRouter API key (openrouter.ai/keys)").addText((text) => {
+        text.setPlaceholder("sk-or-...").setValue(settings.aiApiKey).onChange(async (value) => {
+          settings.aiApiKey = value.trim();
+          await this.plugin.saveSettings();
+        });
+        return text;
+      });
+    } else {
+      const providerModels = provider.models || [];
+      const versionSetting = new import_obsidian.Setting(containerEl).setName("2. Model").setDesc(`Model to use for analysis (${provider.label})`);
+      if (providerModels.length > 0) {
+        versionSetting.addDropdown((dropdown) => {
+          for (const model of providerModels) {
+            dropdown.addOption(model, model);
+          }
+          if (!providerModels.includes(settings.aiModel)) {
+            dropdown.addOption(settings.aiModel, `${settings.aiModel} (custom)`);
+          }
+          dropdown.setValue(settings.aiModel);
+          dropdown.onChange(async (value) => {
+            settings.aiModel = value;
+            await this.plugin.saveSettings();
+            this.display();
+          });
+          return dropdown;
+        });
+      }
+      versionSetting.addText((text) => {
+        text.setPlaceholder(provider.defaultModel || "Custom model tag").setValue(settings.aiModel).onChange(async (value) => {
+          const trimmed = value.trim();
+          if (trimmed) {
+            settings.aiModel = trimmed;
+            await this.plugin.saveSettings();
+          }
+        });
+        return text;
+      });
+      new import_obsidian.Setting(containerEl).setName("API Key").setDesc(`Your ${provider.label} API key`).addText((text) => {
+        text.setPlaceholder(provider.keyPlaceholder).setValue(settings.aiApiKey).onChange(async (value) => {
+          settings.aiApiKey = value.trim();
+          await this.plugin.saveSettings();
+        });
+        return text;
+      });
+    }
+    const creditSetting = new import_obsidian.Setting(containerEl).setName(isLocal ? "Local LLM connection status" : "AI credit & balance").setDesc(isLocal ? "Checking local server connection..." : "Checking credit balance with provider...").addButton((btn) => {
       btn.setButtonText("Refresh").setCta().onClick(async () => {
         btn.setDisabled(true);
         btn.setButtonText("Checking...");
@@ -871,8 +1426,42 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
       }
     };
     updateCreditDisplay();
+    containerEl.createEl("h3", { text: "Processing & Chunking" });
+    new import_obsidian.Setting(containerEl).setName("General chunk window size").setDesc(
+      "Maximum character length per chunk (~30,000 chars \u2248 8,000 tokens). Long content exceeding this threshold is split into parts and processed with multi-stage map-reduce aggregation."
+    ).addText(
+      (text) => text.setPlaceholder("30000").setValue(String(settings.chunkWindowChars || 3e4)).onChange(async (value) => {
+        const num = parseInt(value, 10);
+        if (!isNaN(num) && num >= 1e3) {
+          settings.chunkWindowChars = num;
+          await this.plugin.saveSettings();
+        }
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Section grid interval").setDesc(
+      "Time interval in seconds (default: 300s / 5 minutes) used to generate section lattice points and chapter maps for videos lacking native chapter markers."
+    ).addText(
+      (text) => text.setPlaceholder("300").setValue(String(settings.sectionGridSeconds || 300)).onChange(async (value) => {
+        const num = parseInt(value, 10);
+        if (!isNaN(num) && num >= 10) {
+          settings.sectionGridSeconds = num;
+          await this.plugin.saveSettings();
+        }
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("Max completion tokens").setDesc(
+      "Maximum completion tokens allocated for AI calls (default: 16384). Cloud models (DeepSeek, OpenAI, Anthropic) support large output windows. Local LLM users can adjust this to match their model's context window."
+    ).addText(
+      (text) => text.setPlaceholder("16384").setValue(String(settings.contentAnalysisMaxTokens || 16384)).onChange(async (value) => {
+        const num = parseInt(value, 10);
+        if (!isNaN(num) && num >= 500) {
+          settings.contentAnalysisMaxTokens = num;
+          await this.plugin.saveSettings();
+        }
+      })
+    );
     containerEl.createEl("h3", { text: "Server" });
-    new import_obsidian.Setting(containerEl).setName("Server Port").setDesc("Port for the local HTTP server (requires restart)").addText(
+    new import_obsidian.Setting(containerEl).setName("Server Port").setDesc("Port for the local HTTP server connecting with Chrome Extension (requires restart)").addText(
       (text) => text.setPlaceholder("27123").setValue(String(settings.serverPort)).onChange(async (value) => {
         const port = parseInt(value, 10);
         if (!isNaN(port) && port > 0 && port < 65536) {
@@ -881,11 +1470,768 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
         }
       })
     );
+    containerEl.createEl("h3", { text: "Links & Resources" });
+    new import_obsidian.Setting(containerEl).setName("NutEgg on Chrome Web Store").setDesc("Install or update the NutEgg companion extension for Google Chrome.").addButton(
+      (btn) => btn.setButtonText("Open Chrome Web Store \u2197").onClick(() => {
+        window.open(
+          "https://chromewebstore.google.com/detail/nutegg/bmdmdiicembobejibggoeiahaonphcol",
+          "_blank"
+        );
+      })
+    );
+    new import_obsidian.Setting(containerEl).setName("NutEgg on Obsidian Community Plugins").setDesc("View NutEgg in the Obsidian Community Plugins directory.").addButton(
+      (btn) => btn.setButtonText("Open Obsidian Directory \u2197").onClick(() => {
+        window.open("https://community.obsidian.md/plugins/nutegg", "_blank");
+      })
+    );
+  }
+  displayLanguageSettings(containerEl, settings) {
+    containerEl.createEl("h3", { text: "Language & Output" });
+    const PRESET_LANGUAGES = {
+      "same-as-content": "Same as content (follow captured text)",
+      English: "English",
+      Chinese: "Chinese (\u4E2D\u6587)",
+      Japanese: "Japanese (\u65E5\u672C\u8A9E)",
+      Korean: "Korean (\uD55C\uAD6D\uC5B4)",
+      Spanish: "Spanish (Espa\xF1ol)",
+      French: "French (Fran\xE7ais)",
+      German: "German (Deutsch)"
+    };
+    const isCustomLang = this.customLanguageMode || !!settings.contentOutputLanguage && !Object.keys(PRESET_LANGUAGES).includes(settings.contentOutputLanguage);
+    new import_obsidian.Setting(containerEl).setName("Content analysis output language").setDesc(
+      "Language used for Stage 1 summaries, verdicts, and chapter maps. (Stage 2 egg analysis always follows each egg's own language property.)"
+    ).addDropdown((dropdown) => {
+      for (const [key, label] of Object.entries(PRESET_LANGUAGES)) {
+        dropdown.addOption(key, label);
+      }
+      dropdown.addOption("custom", "Custom language...");
+      dropdown.setValue(
+        isCustomLang ? "custom" : settings.contentOutputLanguage || "same-as-content"
+      );
+      dropdown.onChange(async (val) => {
+        if (val === "custom") {
+          this.customLanguageMode = true;
+        } else {
+          this.customLanguageMode = false;
+          settings.contentOutputLanguage = val;
+          await this.plugin.saveSettings();
+        }
+        this.display();
+      });
+    });
+    if (isCustomLang) {
+      new import_obsidian.Setting(containerEl).setName("Custom output language").setDesc("Specify the target language name (e.g. Italian, Traditional Chinese)").addText((text) => {
+        text.setPlaceholder("e.g. Italian").setValue(
+          !Object.keys(PRESET_LANGUAGES).includes(settings.contentOutputLanguage) ? settings.contentOutputLanguage : ""
+        ).onChange(async (val) => {
+          const trimmed = val.trim();
+          if (trimmed) {
+            settings.contentOutputLanguage = trimmed;
+            await this.plugin.saveSettings();
+          }
+        });
+        if (this.customLanguageMode) {
+          setTimeout(() => text.inputEl?.focus(), 50);
+        }
+        return text;
+      });
+    }
   }
 };
 
 // src/server.ts
 var http = __toESM(require("http"));
+
+// src/index-sync.ts
+var import_obsidian2 = require("obsidian");
+
+// src/templates/index.md
+var templates_default = '# NutEgg Egg Index\n\n> [!abstract]- Instructions:\n> - Add one line per egg file: "* $path: $description_of_what_it_covers"\n> - Process only the lines beginning with *\n\n\n* nutegg/investment.md: investment strategies, market analysis, portfolio management\n* nutegg/society.md: geopolitics, class dynamics, global conflict, political economy\n* nutegg/psychology.md: cognitive biases, mental models, behavioral psychology, decision making\n* nutegg/ai_ml.md: artificial intelligence, machine learning, LLMs, AGI, prompt engineering\n';
+
+// src/templates/egg.md
+var egg_default = `---
+topic: "Unknown"
+status: "active"
+last_updated: "2026-08-14"
+language: "English"
+---
+
+> [!abstract]- Instructions:
+> **Scope:** Capture high-signal, paradigm-shifting concepts, universally applicable frameworks, and novel data that hold significant strategic value but fall strictly outside established domain-specific routing.
+>
+> **Action Guide:**
+> 1. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
+> 2. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
+>
+> **Key Questions:**
+> 1. what new insights does this add?
+> 2. Identify any conflicts between this new data and the existing knowledge base.
+>
+> **Rejection Criteria:**
+> - Ignore content that repeats existing knowledge
+>
+> **Formatting Rules:** 
+> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
+>   * [concept] \u2014 a definition or explanation of what something IS (e.g. a technique, algorithm, or paradigm)
+>   * [architecture] \u2014 a model architecture, system design, or structural approach
+>   * [method] \u2014 a how-to, workflow, training recipe, or step-by-step process
+>   * [benchmark] \u2014 a measurable result, performance comparison, or empirical finding
+>   * [explain] \u2014 reasoning or rationale behind a design choice or conclusion (the "why")
+>   * [fact] \u2014 a verifiable data point, statistic, or empirical finding
+>   * [example] \u2014 a concrete demo, paper, deployment, or case study that illustrates an idea
+> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as a indented sub-bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). Author and source are appended automatically.
+> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
+> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
+> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
+
+
+# Knowledge
+
+
+# Unprocessed
+`;
+
+// src/templates/examples/investment.md
+var investment_default = `---
+topic: "Investment Strategy & Market Analysis"
+status: "active"
+last_updated: "2026-08-12"
+language: "English"
+---
+
+> [!abstract]- Instructions:
+> **Scope:** This file captures high-signal financial data, macro-economic shifts, asset allocation strategies, and deep fundamental analyses of target equities or protocols.
+>
+> **Action Guide:**
+> 1. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
+> 2. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
+>
+> **Key Questions:**
+> 1. Does this detail a structural shift in macro-economic policy (e.g., interest rates, inflation metrics, geopolitical supply chain impacts)?
+> 2. Is there a new, data-backed fundamental analysis or earnings breakdown for a company on my watchlist?
+> 3. Does this introduce a quantifiable framework for risk management or portfolio rebalancing?
+> 
+> **Rejection Criteria:**
+> - Reject purely speculative price predictions or "day-trading" setups.
+> - Reject emotionally driven market commentary, panic narratives, or FOMO-inducing content.
+> - Reject basic financial definitions (e.g., "What is an ETF?").
+> 
+> **Formatting Rules:** 
+> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
+>   * [concept] \u2014 a definition or explanation of what something IS (e.g. a financial instrument, market mechanism)
+>   * [signal] \u2014 a macro-economic shift, market signal, or structural trend worth monitoring
+>   * [framework] \u2014 a quantifiable model, strategy, or analytical approach for portfolio/risk decisions
+>   * [method] \u2014 a how-to, workflow, or step-by-step process for investing or analysis
+>   * [opinion] \u2014 a subjective market thesis, recommendation, or viewpoint from the author
+>   * [fact] \u2014 a verifiable data point, earnings figure, statistic, or historical event
+>   * [example] \u2014 a concrete case study, trade, or real-world market event that illustrates an idea
+> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For investments, examples are specific data points, numbers, earnings figures, or market events. Author and source are appended automatically.
+> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
+> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
+> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
+
+# Knowledge
+
+
+# Unprocessed
+
+`;
+
+// src/templates/examples/psychology.md
+var psychology_default = `---
+topic: "Psychology & Mental Models"
+status: "active"
+last_updated: "2026-08-14"
+language: "English"
+---
+
+> [!abstract]- Instructions:
+> **Scope:** Capture actionable cognitive biases, behavioral mechanics, and mental models that explain human decision-making and cognitive processes.
+>
+> **Action Guide:**
+> 1. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
+> 2. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
+>
+> **Key Questions:**
+> 1. What specific cognitive bias, mental model, or psychological insight does this reveal?
+>
+> **Rejection Criteria:**
+> - Reject generic self-help advice or motivational platitudes.
+> - Reject concepts that lack specific psychological mechanisms or scientific grounding.
+>
+> **Formatting Rules:** 
+> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
+>   * [bias] \u2014 a named cognitive bias or systematic error in human judgment
+>   * [model] \u2014 a mental model, decision-making framework, or heuristic
+>   * [mechanism] \u2014 an underlying psychological process or behavioral mechanic (the "how" of cognition)
+>   * [explain] \u2014 reasoning or rationale behind why a bias or behavior occurs
+>   * [fact] \u2014 a verifiable research finding, study result, or statistical data
+>   * [example] \u2014 a concrete experiment, study, or real-world observation that illustrates a concept
+> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For psychology, examples are experiments, studies, or real-world observations. Author and source are appended automatically.
+> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
+> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
+> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
+
+# Knowledge
+
+
+# Unprocessed
+
+`;
+
+// src/templates/examples/society.md
+var society_default = `---
+topic: "Geopolitics, Society & Economics"
+status: "active"
+last_updated: "2026-08-14"
+language: "English"
+---
+
+> [!abstract]- Instructions:
+> **Scope:** Capture new knowledge and insights.
+> 
+> **Action Guide:**
+> 1. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
+> 2. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
+>
+> **Key Questions:**
+> 1. What geopolitical, social, or economic dynamic does this reveal?
+>
+> **Rejection Criteria:**
+> - Reject superficial news recaps and transient event reporting lacking structural analysis.
+> - Reject partisan commentary, emotional narratives, or short-term noise that fails to indicate a broader systemic shift.
+>
+> **Formatting Rules:** 
+> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
+>   * [concept] \u2014 a definition or explanation of what something IS (e.g. an economic mechanism, social dynamic)
+>   * [trend] \u2014 a structural shift, long-term pattern, or systemic change in geopolitics/society/economy
+>   * [policy] \u2014 a government action, regulation, or institutional decision with strategic implications
+>   * [explain] \u2014 reasoning or rationale behind why a geopolitical or social dynamic occurs
+>   * [opinion] \u2014 a subjective analysis, prediction, or commentary from the author
+>   * [fact] \u2014 a verifiable data point, statistic, historical event, or demographic figure
+>   * [example] \u2014 a concrete event, country case, or policy outcome that illustrates a concept
+> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For geopolitics/society, examples are specific events, policies, or country cases. Author and source are appended automatically.
+> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
+> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
+> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
+
+# Knowledge
+
+
+# Unprocessed
+
+`;
+
+// src/templates/examples/ai_ml.md
+var ai_ml_default = `---
+topic: "Artificial Intelligence & Machine Learning"
+status: "active"
+last_updated: "2026-08-14"
+language: "English"
+---
+
+> [!abstract]- Instructions:
+> **Scope:** Capture novel techniques, capabilities, and implications in AI/ML, model architectures, and hardware-level machine learning frameworks (e.g., Tinygrad, MLX).
+>
+> **Action Guide:**
+> 1. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
+> 2. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
+>
+> **Key Questions:**
+> 1. What new AI/ML technique, capability, or architectural implication does this describe?
+> 2. What new application or workflow does this describe?
+>
+> **Rejection Criteria:**
+> - Reject marketing hype and product announcements lacking technical depth.
+> - Reject benchmark scores without structural or architectural insights.
+> - Reject repeated, derivative, or mainstream AI news.
+>
+> **Formatting Rules:** 
+> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
+>   * [concept] \u2014 a definition or explanation of what something IS (e.g. a technique, algorithm, or paradigm)
+>   * [architecture] \u2014 a model architecture, system design, or structural approach
+>   * [method] \u2014 a how-to, workflow, training recipe, or step-by-step process
+>   * [benchmark] \u2014 a measurable result, performance comparison, or empirical finding
+>   * [explain] \u2014 reasoning or rationale behind a design choice or conclusion (the "why")
+>   * [fact] \u2014 a verifiable data point, statistic, or empirical finding
+>   * [example] \u2014 a concrete demo, paper, deployment, or case study that illustrates an idea
+> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For AI/ML, examples are papers, benchmarks, model/code demos, or real-world deployments. Author and source are appended automatically.
+> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
+> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
+> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
+
+# Knowledge
+
+
+# Unprocessed
+
+`;
+
+// src/defaults.ts
+var INDEX_TEMPLATE = templates_default;
+var EGG_TEMPLATE = egg_default;
+var EXAMPLE_EGGS = [
+  { path: "nutegg/investment.md", content: investment_default },
+  { path: "nutegg/psychology.md", content: psychology_default },
+  { path: "nutegg/society.md", content: society_default },
+  { path: "nutegg/ai_ml.md", content: ai_ml_default }
+];
+
+// src/index-sync.ts
+init_egg_parser();
+function sanitizeEggName(name) {
+  return String(name || "").trim().toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+}
+var IndexSync = class {
+  plugin;
+  initialized = false;
+  isUpdatingIndex = false;
+  directEditTimer = null;
+  diffListeners = /* @__PURE__ */ new Set();
+  constructor(plugin) {
+    this.plugin = plugin;
+  }
+  /** Subscribe to index diff status changes. Returns unsubscribe function. */
+  onDiffChanged(listener) {
+    this.diffListeners.add(listener);
+    return () => this.diffListeners.delete(listener);
+  }
+  notifyDiffChanged() {
+    for (const listener of this.diffListeners) {
+      try {
+        listener();
+      } catch {
+      }
+    }
+  }
+  /** Register vault event listeners for egg additions, deletions, renames, and direct index edits. */
+  init() {
+    if (this.initialized)
+      return;
+    this.initialized = true;
+    const vault = this.plugin.app?.vault;
+    if (!vault?.on)
+      return;
+    const hook = (event, cb) => {
+      const ref = vault.on(event, cb);
+      if (typeof this.plugin.registerEvent === "function") {
+        this.plugin.registerEvent(ref);
+      }
+    };
+    hook("create", async (file) => {
+      if (this.isUpdatingIndex)
+        return;
+      if (file && file.path) {
+        await this.onEggFileCreated(file);
+      }
+    });
+    hook("delete", async (file) => {
+      if (this.isUpdatingIndex)
+        return;
+      if (file && file.path) {
+        await this.onEggFileDeleted(file.path);
+      }
+    });
+    hook("rename", async (file, oldPath) => {
+      if (this.isUpdatingIndex)
+        return;
+      if (file && file.path && oldPath) {
+        await this.onEggFileRenamed(oldPath, file.path);
+      }
+    });
+    hook("modify", async (file) => {
+      if (this.isUpdatingIndex)
+        return;
+      if (file && file.path === this.plugin.settings?.indexFile) {
+        this.debounceDirectIndexEdit();
+      }
+    });
+  }
+  /** Handle an egg file being created or dropped into nutegg/ */
+  async onEggFileCreated(file) {
+    const folder = this.plugin.vaultFolder || "nutegg";
+    if (!isEggPath(file.path, folder))
+      return;
+    this.notifyDiffChanged();
+  }
+  /** Handle an egg file being deleted from nutegg/ */
+  async onEggFileDeleted(filePath) {
+    const folder = this.plugin.vaultFolder || "nutegg";
+    if (!isEggPath(filePath, folder))
+      return;
+    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
+      this.plugin.settings.indexFile
+    );
+    if (!indexFile)
+      return;
+    this.isUpdatingIndex = true;
+    try {
+      const fileName = filePath.split("/").pop() || "";
+      let modified = await this.removeIndexEntry(indexFile, filePath);
+      if (fileName && fileName !== filePath) {
+        const mod2 = await this.removeIndexEntry(indexFile, fileName);
+        modified = modified || mod2;
+      }
+      if (modified) {
+        new import_obsidian2.Notice(`[NutEgg] Removed ${filePath} from egg index`);
+      }
+      this.notifyDiffChanged();
+    } finally {
+      this.isUpdatingIndex = false;
+    }
+  }
+  /** Handle an egg file being renamed */
+  async onEggFileRenamed(oldPath, newPath) {
+    const folder = this.plugin.vaultFolder || "nutegg";
+    const wasEgg = isEggPath(oldPath, folder);
+    const isEgg = isEggPath(newPath, folder);
+    if (!wasEgg && !isEgg)
+      return;
+    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
+      this.plugin.settings.indexFile
+    );
+    if (!indexFile)
+      return;
+    this.isUpdatingIndex = true;
+    try {
+      if (wasEgg && isEgg) {
+        await this.rewriteIndexPath(indexFile, oldPath, newPath);
+        const oldBase = oldPath.split("/").pop() || "";
+        if (oldBase) {
+          await this.rewriteIndexPath(indexFile, oldBase, newPath);
+        }
+        new import_obsidian2.Notice(`[NutEgg] Renamed index path: ${oldPath} -> ${newPath}`);
+      } else if (wasEgg && !isEgg) {
+        await this.removeIndexEntry(indexFile, oldPath);
+      } else {
+        this.notifyDiffChanged();
+      }
+    } finally {
+      this.isUpdatingIndex = false;
+    }
+  }
+  /** Debounce direct edits on _index.md: notify diff changed without creating files automatically */
+  debounceDirectIndexEdit() {
+    if (this.directEditTimer) {
+      clearTimeout(this.directEditTimer);
+    }
+    this.directEditTimer = setTimeout(async () => {
+      this.directEditTimer = null;
+      await this.onDirectIndexEdit();
+    }, 500);
+  }
+  /**
+   * Handle direct user edits on _index.md.
+   * Per user requirement, direct edits on _index.md NEVER create egg files automatically.
+   * The user clicks the Sync button in _index.md to trigger creation.
+   */
+  async onDirectIndexEdit() {
+    if (this.isUpdatingIndex)
+      return;
+    this.notifyDiffChanged();
+  }
+  /** Calculate discrepancies between _index.md and disk */
+  async getDiffStatus() {
+    const folder = this.plugin.vaultFolder || "nutegg";
+    const norm = (p) => p.startsWith(folder + "/") ? p : `${folder}/${p.replace(/^\/+/, "")}`;
+    const eggFilesOnDisk = (this.plugin.app.vault.getMarkdownFiles?.() || []).filter((f) => isEggPath(f.path, folder)).map((f) => f.path);
+    const diskSet = new Set(eggFilesOnDisk);
+    const indexContent = await this.plugin.indexReader.getIndexContent();
+    if (indexContent === "(No _index.md found)") {
+      return { missingEggs: [], unindexedEggs: [], invalidEntries: [], totalDiffs: 0 };
+    }
+    const rawEntries = this.plugin.indexReader.parseIndexContent(indexContent);
+    const missingEggs = [];
+    const invalidEntries = [];
+    const indexedEggPaths = /* @__PURE__ */ new Set();
+    for (const entry of rawEntries) {
+      const target = norm(entry.fileName);
+      if (!isEggPath(target, folder)) {
+        invalidEntries.push(entry.fileName);
+      } else {
+        indexedEggPaths.add(target);
+        if (!diskSet.has(target)) {
+          const exists = await this.plugin.app.vault.adapter.exists(target) || Boolean(this.plugin.app.vault.getAbstractFileByPath(target));
+          if (!exists) {
+            missingEggs.push(target);
+          }
+        }
+      }
+    }
+    const unindexedEggs = [];
+    for (const eggPath of eggFilesOnDisk) {
+      if (!indexedEggPaths.has(eggPath)) {
+        unindexedEggs.push(eggPath);
+      }
+    }
+    return {
+      missingEggs,
+      unindexedEggs,
+      invalidEntries,
+      totalDiffs: missingEggs.length + unindexedEggs.length + invalidEntries.length
+    };
+  }
+  /** Trigger full manual sync from the Sync button */
+  async sync() {
+    this.isUpdatingIndex = true;
+    try {
+      const result = await this.checkAndFix({ syncUnindexed: true });
+      this.notifyDiffChanged();
+      return result;
+    } finally {
+      this.isUpdatingIndex = false;
+    }
+  }
+  async checkAndFix(options) {
+    const result = {
+      addedIndexEntries: [],
+      fixedIndexPaths: [],
+      createdEggs: [],
+      prunedIndexEntries: []
+    };
+    const folder = this.plugin.vaultFolder || "nutegg";
+    const indexContent = await this.plugin.indexReader.getIndexContent();
+    if (indexContent === "(No _index.md found)") {
+      return result;
+    }
+    const rawEntries = this.plugin.indexReader.parseIndexContent(indexContent);
+    const norm = (p) => p.startsWith(folder + "/") ? p : `${folder}/${p.replace(/^\/+/, "")}`;
+    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
+      this.plugin.settings.indexFile
+    );
+    const entries = [];
+    let updatedIndexContent = indexContent;
+    for (const entry of rawEntries) {
+      const target = norm(entry.fileName);
+      if (!isEggPath(target, folder)) {
+        const escaped = entry.fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`^[\\t ]*[*\\-+]?[\\t ]*${escaped}(?:[\\t ]*:.*)?(?:\\r?\\n)?`, "m");
+        updatedIndexContent = updatedIndexContent.replace(re, "");
+        result.prunedIndexEntries.push(entry.fileName);
+      } else {
+        entries.push(entry);
+      }
+    }
+    if (result.prunedIndexEntries.length > 0 && indexFile) {
+      await this.plugin.app.vault.modify(indexFile, updatedIndexContent);
+      console.log(`[NutEgg] Pruned ${result.prunedIndexEntries.length} invalid entries from index`);
+    }
+    if (options?.syncUnindexed && indexFile) {
+      const diskEggFiles = (this.plugin.app.vault.getMarkdownFiles?.() || []).filter((f) => isEggPath(f.path, folder));
+      const indexedTargets = new Set(entries.map((e) => norm(e.fileName)));
+      for (const file of diskEggFiles) {
+        if (!indexedTargets.has(file.path)) {
+          const content = await this.plugin.app.vault.read(file).catch(() => "");
+          if (matchesEggFormat(content)) {
+            let topic = "";
+            try {
+              const egg = await this.plugin.eggParser.readEgg(file.path);
+              if (egg?.topic && egg.topic !== "Unknown") {
+                topic = egg.topic;
+              }
+            } catch {
+            }
+            if (!topic) {
+              topic = file.path.split("/").pop().replace(/\.md$/, "");
+            }
+            await this.appendIndexEntry(indexFile, file.path, topic);
+            result.addedIndexEntries.push(file.path);
+            indexedTargets.add(file.path);
+          }
+        }
+      }
+    }
+    for (const entry of entries) {
+      const target = norm(entry.fileName);
+      if (await this.plugin.app.vault.adapter.exists(target))
+        continue;
+      if (await this.plugin.app.vault.adapter.exists(entry.fileName))
+        continue;
+      try {
+        await this.createEggFromTemplate(target, entry);
+        if (target !== entry.fileName) {
+          await this.rewriteIndexPath(indexFile, entry.fileName, target);
+          result.fixedIndexPaths.push(target);
+        }
+        result.createdEggs.push(target);
+      } catch (err) {
+        console.warn(`[NutEgg] Could not create egg from template for ${target}:`, err);
+      }
+    }
+    for (const entry of entries) {
+      const target = norm(entry.fileName);
+      if (entry.fileName !== target && await this.plugin.app.vault.adapter.exists(target)) {
+        await this.rewriteIndexPath(indexFile, entry.fileName, target);
+        if (!result.fixedIndexPaths.includes(target)) {
+          result.fixedIndexPaths.push(target);
+        }
+      }
+    }
+    if (result.addedIndexEntries.length || result.fixedIndexPaths.length || result.createdEggs.length || result.prunedIndexEntries.length) {
+      console.log(
+        `[NutEgg] Index sync: +${result.addedIndexEntries.length} entries added, ~${result.fixedIndexPaths.length} paths normalized, +${result.createdEggs.length} egg files created, -${result.prunedIndexEntries.length} non-egg entries pruned`
+      );
+    }
+    this.notifyDiffChanged();
+    return result;
+  }
+  /**
+   * Create a new egg file from a name + description (the popup's "no egg
+   * matched — create one?" flow). Seeds the template's topic/scope from the
+   * description and appends the matching _index.md entry. `alreadyExists`
+   * when the file was already there (nothing is overwritten).
+   */
+  async createEgg(rawName, rawDescription) {
+    const name = sanitizeEggName(rawName);
+    const description = (rawDescription || "").trim();
+    if (!name) {
+      throw new Error("Invalid egg name");
+    }
+    const folder = this.plugin.vaultFolder || "nutegg";
+    const fileName = `${folder}/${name}.md`;
+    if (await this.plugin.app.vault.adapter.exists(fileName)) {
+      const existingContent = await this.plugin.app.vault.adapter.read(fileName).catch(() => "");
+      return {
+        path: fileName,
+        alreadyExists: true,
+        language: extractEggLanguage(existingContent)
+      };
+    }
+    const { language } = await this.createEggFromTemplate(fileName, {
+      fileName,
+      description
+    });
+    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
+      this.plugin.settings.indexFile
+    );
+    this.isUpdatingIndex = true;
+    try {
+      await this.appendIndexEntry(indexFile, fileName, description || name);
+      this.notifyDiffChanged();
+    } finally {
+      this.isUpdatingIndex = false;
+    }
+    return { path: fileName, alreadyExists: false, language };
+  }
+  async removeIndexEntry(indexFile, entryPath) {
+    if (!indexFile)
+      return false;
+    const content = await this.plugin.app.vault.read(indexFile);
+    const escaped = entryPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^[\\t ]*[*\\-+]?[\\t ]*${escaped}(?:[\\t ]*:.*)?(?:\\r?\\n)?`, "m");
+    if (!re.test(content))
+      return false;
+    const updated = content.replace(re, "");
+    if (updated === content)
+      return false;
+    await this.plugin.app.vault.modify(indexFile, updated);
+    console.log(`[NutEgg] Removed index entry: ${entryPath}`);
+    return true;
+  }
+  async appendIndexEntry(indexFile, eggPath, description) {
+    if (!indexFile)
+      return;
+    const line = `* ${eggPath}${description ? `: ${description}` : ""}`;
+    const content = await this.plugin.app.vault.read(indexFile);
+    await this.plugin.app.vault.modify(
+      indexFile,
+      content.replace(/\n+$/, "") + `
+${line}
+`
+    );
+    console.log(`[NutEgg] Added index entry: ${line}`);
+  }
+  /** Rewrite one index entry's file path in place (keeps its description). */
+  async rewriteIndexPath(indexFile, oldPath, newPath) {
+    if (!indexFile)
+      return;
+    const content = await this.plugin.app.vault.read(indexFile);
+    const escaped = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^(\\s*[*\\-+]?\\s*)${escaped}(\\s*:)`, "m");
+    if (!re.test(content))
+      return;
+    const updated = content.replace(re, `$1${newPath}$2`);
+    if (updated === content)
+      return;
+    await this.plugin.app.vault.modify(indexFile, updated);
+    console.log(`[NutEgg] Index path fixed: ${oldPath} -> ${newPath}`);
+  }
+  /**
+   * Create the missing egg file from the template, seeded from the index
+   * entry's description (topic + scope). Reuses EGG_TEMPLATE and optionally
+   * localizes concrete instructions to match the description's language.
+   */
+  async createEggFromTemplate(targetPath, entry) {
+    await this.ensureParentFolders(targetPath);
+    const folder = this.plugin.vaultFolder || "nutegg";
+    const fallbackTopic = targetPath.replace(new RegExp(`^${folder}/`), "").replace(/\.md$/, "");
+    const topic = (entry.description || fallbackTopic).trim();
+    const dateStr = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    let content = EGG_TEMPLATE;
+    content = content.replace(
+      /^topic: .*$/m,
+      `topic: "${this.escapeYaml(topic)}"`
+    );
+    if (entry.description) {
+      content = content.replace(
+        /^> \*\*Scope:\*\* .*$/m,
+        `> **Scope:** ${entry.description}`
+      );
+    }
+    content = content.replace(
+      /^last_updated: .*$/m,
+      `last_updated: "${dateStr}"`
+    );
+    let detectedLanguage = "";
+    if (entry.description && this.plugin.aiProcessor?.localizeEggTemplate) {
+      try {
+        const localized = await this.plugin.aiProcessor.localizeEggTemplate(
+          content,
+          entry.description
+        );
+        if (localized) {
+          if (typeof localized === "string") {
+            content = localized;
+            detectedLanguage = extractEggLanguage(localized) || detectedLanguage;
+          } else {
+            content = localized.content;
+            detectedLanguage = localized.language || extractEggLanguage(localized.content) || detectedLanguage;
+          }
+        }
+      } catch (err) {
+        console.warn("[NutEgg] Failed to localize egg template with AI:", err);
+      }
+    }
+    const settingLang = this.plugin.settings?.contentOutputLanguage;
+    const pluginLang = settingLang && settingLang !== "same-as-content" ? settingLang.trim() : "";
+    if (!detectedLanguage) {
+      detectedLanguage = extractEggLanguage(content) || pluginLang || "English";
+    }
+    if (detectedLanguage) {
+      content = insertEggLanguage(content, detectedLanguage, { overwrite: true });
+    }
+    await this.plugin.app.vault.create(targetPath, content);
+    console.log(`[NutEgg] Created egg from index entry: ${targetPath}`);
+    return { path: targetPath, language: detectedLanguage };
+  }
+  async ensureParentFolders(path) {
+    const parts = path.split("/").slice(0, -1);
+    let currentPath = "";
+    for (const part of parts) {
+      currentPath += (currentPath ? "/" : "") + part;
+      const exists = await this.plugin.app.vault.adapter.exists(currentPath);
+      if (!exists) {
+        await this.plugin.app.vault.createFolder(currentPath);
+      }
+    }
+  }
+  escapeYaml(value) {
+    return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+};
+
+// src/server.ts
+init_egg_parser();
 var NutEggServer = class {
   server = null;
   plugin;
@@ -924,16 +2270,38 @@ var NutEggServer = class {
       result: row.analysisResult,
       title: row.title,
       author: row.author,
-      publishedAt: row.publishedAt
+      publishedAt: row.publishedAt,
+      url: row.url,
+      sourceType: row.sourceType,
+      content: row.content
     }));
   }
   /** Reading/watch time estimate from metadata, or word-count fallback. */
   estimateTime(metadata, content) {
     return parseInt(metadata?.time_estimate_minutes || "0", 10) || Math.max(1, Math.ceil((content?.split(/\s+/)?.length || 0) / 200));
   }
-  /** Count egg files (markdown under nutegg/, excluding _raw and _index). */
+  /** Count egg files (direct markdown notes under vaultFolder/, excluding system files). */
   countEggs() {
-    return this.plugin.app.vault.getMarkdownFiles().filter((f) => f.path.startsWith("nutegg/") && !f.path.startsWith(this.plugin.settings.rawFolder) && !f.path.endsWith("/_index.md")).length;
+    const folder = this.plugin.vaultFolder || "nutegg";
+    return this.plugin.app.vault.getMarkdownFiles().filter((f) => isEggPath(f.path, folder)).length;
+  }
+  /** Insert a capture entry into the SQLite DB if available. */
+  recordNut(capture, result) {
+    return this.plugin.db?.insertNut({
+      url: this.normalizeUrl(capture.url),
+      title: capture.title,
+      sourceType: capture.sourceType,
+      content: capture.content || "",
+      savedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      publishedAt: capture.metadata?.published || "",
+      author: capture.metadata?.author || capture.metadata?.channel || capture.metadata?.handle || "",
+      timeEstimateMinutes: this.estimateTime(capture.metadata, capture.content),
+      processingResult: "analyzed",
+      summary: [result.titleVerdict, ...result.coreSummary || []].filter(Boolean).join("\n"),
+      matchedEggs: result.matchedEggs || [],
+      fileName: "",
+      analysisResult: result
+    }) ?? void 0;
   }
   /** Strip trailing slashes, fragment, and common tracking/session params. */
   normalizeUrl(url) {
@@ -1067,8 +2435,10 @@ var NutEggServer = class {
     const settings = this.plugin.settings;
     const issues = [];
     let status = "ok";
-    if (!settings.aiApiKey) {
-      issues.push("No API key configured. Open Obsidian Settings \u2192 NutEgg, enable Developer Mode, and add your API key.");
+    if (!isAIConfigured(settings)) {
+      issues.push(
+        settings.aiProvider === "local" ? "Local LLM endpoint or model not configured. Open Obsidian Settings \u2192 NutEgg to configure it." : "No API key configured. Open Obsidian Settings \u2192 NutEgg, enable Developer Mode, and add your API key."
+      );
       status = "error";
     }
     const indexExists = await this.plugin.app.vault.adapter.exists(settings.indexFile);
@@ -1233,7 +2603,7 @@ var NutEggServer = class {
       }
       const hasQuestions = capture.questions && capture.questions.length > 0;
       const hasEggOverride = !!capture.eggs && capture.eggs.length > 0;
-      if (!hasQuestions && !capture.force && !hasEggOverride) {
+      if (!capture.stage && !hasQuestions && !capture.force && !hasEggOverride) {
         const history = this.getCaptureHistory(capture.url);
         if (history.length > 0) {
           res.writeHead(200, { "Content-Type": "application/json" });
@@ -1241,38 +2611,66 @@ var NutEggServer = class {
           return;
         }
       }
+      if (capture.stage === 2 || capture.stage === "2") {
+        const indexContent2 = await this.plugin.indexReader.getIndexContent();
+        const index2 = this.plugin.indexReader.parseIndexContent(indexContent2);
+        const targetEggs = (capture.eggs || []).map((fileName) => {
+          const entry = index2.find(
+            (e) => e.fileName === fileName || e.fileName.endsWith("/" + fileName)
+          );
+          return { fileName, description: entry?.description || "" };
+        });
+        const eggs = await this.plugin.eggParser.readEggs(targetEggs);
+        const contentAnalysis2 = capture.contentAnalysis || {
+          titleVerdict: capture.title,
+          coreSummary: [],
+          isLongForm: false,
+          chapterMap: [],
+          customQuestionAnswers: []
+        };
+        const result = await this.plugin.aiProcessor.analyzeEggs(
+          capture,
+          eggs,
+          contentAnalysis2
+        );
+        delete result.stage;
+        const nutId = this.recordNut(capture, result);
+        console.log(
+          `[NutEgg] Analyzed (Stage 2): ${capture.title} \u2014 shouldRead=${result.shouldRead}, newKnowledge=${result.newKnowledge.length}`
+        );
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ...result, stage: "stage2", nutId }));
+        return;
+      }
+      const contentAnalysis = await this.plugin.aiProcessor.analyzeContent(capture);
       const indexContent = await this.plugin.indexReader.getIndexContent();
       const index = this.plugin.indexReader.parseIndexContent(indexContent);
-      const matchedEggs = hasEggOverride ? capture.eggs.map((fileName) => ({ fileName, description: "" })) : await this.plugin.indexReader.matchEggs(capture, index);
-      const eggs = await this.plugin.eggParser.readEggs(matchedEggs);
-      const result = await this.plugin.aiProcessor.analyze(capture, eggs);
-      const nutId = this.plugin.db?.insertNut({
-        url: this.normalizeUrl(capture.url),
-        title: capture.title,
-        sourceType: capture.sourceType,
-        content: capture.content || "",
-        savedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        publishedAt: capture.metadata?.published || "",
-        author: capture.metadata?.author || capture.metadata?.channel || capture.metadata?.handle || "",
-        timeEstimateMinutes: this.estimateTime(capture.metadata, capture.content),
-        processingResult: "analyzed",
-        summary: [result.titleVerdict, ...result.coreSummary || []].filter(Boolean).join("\n"),
-        matchedEggs: result.matchedEggs || [],
-        fileName: "",
-        analysisResult: result
-      }) ?? void 0;
-      console.log(
-        `[NutEgg] Analyzed: ${capture.title} \u2014 shouldRead=${result.shouldRead}, newKnowledge=${result.newKnowledge.length}`
-      );
-      let suggestedEgg = null;
-      if (result.matchedEggs.length === 0) {
-        suggestedEgg = await this.plugin.aiProcessor.suggestEgg(
-          capture,
-          [result.titleVerdict, ...result.coreSummary || []].join(" ")
+      let matchedEggs = [];
+      if (hasEggOverride) {
+        matchedEggs = capture.eggs;
+      } else {
+        const summaryText = [
+          contentAnalysis.titleVerdict,
+          ...contentAnalysis.coreSummary || []
+        ].filter(Boolean).join("\n");
+        const matchedIndex = await this.plugin.indexReader.matchEggs(
+          { title: capture.title, url: capture.url, content: summaryText },
+          index
         );
+        matchedEggs = matchedIndex.map((e) => e.fileName);
       }
+      console.log(
+        `[NutEgg] Analyzed (Stage 1): ${capture.title} \u2014 matchedEggs=${matchedEggs.length}`
+      );
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ...result, nutId, suggestedEgg }));
+      res.end(
+        JSON.stringify({
+          ...contentAnalysis,
+          matchedEggs,
+          allEggs: index.map((e) => e.fileName),
+          stage: "stage1"
+        })
+      );
     } catch (err) {
       console.error("[NutEgg] Analyze error:", err);
       if (err instanceof AIError) {
@@ -1354,6 +2752,28 @@ var NutEggServer = class {
           confirm.url,
           author
         );
+        const perEggList = confirm.analysis?.perEggAnalysis;
+        if (Array.isArray(perEggList)) {
+          for (const perEgg of perEggList) {
+            if (perEgg?.egg && perEgg?.language) {
+              try {
+                const egg = await this.plugin.eggParser.readEgg(perEgg.egg);
+                if (egg && !egg.language) {
+                  const file = this.plugin.app.vault.getAbstractFileByPath(egg.fileName);
+                  if (file) {
+                    const content = await this.plugin.app.vault.read(file);
+                    const updated = insertEggLanguage(content, perEgg.language);
+                    if (updated !== content) {
+                      await this.plugin.app.vault.modify(file, updated);
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn(`[NutEgg] Failed to persist egg language on confirm:`, err);
+              }
+            }
+          }
+        }
       }
       const db = this.plugin.db;
       const normalizedUrl = this.normalizeUrl(confirm.url);
@@ -1406,7 +2826,7 @@ var NutEggServer = class {
     try {
       const body = await this.readBody(req);
       const { name, description } = JSON.parse(body);
-      const safeName = String(name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+      const safeName = sanitizeEggName(name);
       if (!safeName) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Missing egg name" }));
@@ -1424,7 +2844,8 @@ var NutEggServer = class {
         JSON.stringify({
           success: true,
           path: result.path,
-          alreadyExists: result.alreadyExists
+          alreadyExists: result.alreadyExists,
+          language: result.language
         })
       );
     } catch (err) {
@@ -1457,11 +2878,11 @@ var NutEggServer = class {
   }
 };
 
-// src/prompts/content-analysis.md
-var content_analysis_default = `You are a knowledge curator. Analyze the content below following this Action Guide.
+// src/ai-processor.ts
+init_egg_parser();
 
-## Action Guide
-{{action_guide}}
+// src/workflow/content-analysis.md
+var content_analysis_default = `You are a knowledge curator. Analyze the content below following the Task.
 
 ## Content to Analyze
 **Title:** {{title}}
@@ -1469,11 +2890,14 @@ var content_analysis_default = `You are a knowledge curator. Analyze the content
 **Type:** {{source_type}}
 {{part_note}}{{chapters}}
 {{sections}}{{questions}}
-{{egg_key_questions}}
 
 {{content}}
 
-Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
+## Task
+{{content_task_default}}
+
+## Output Format
+Respond with ONLY a valid JSON object matching this schema (no markdown, no code fence, just the JSON object):
 {
   "titleVerdict": "direct answer to the title's question",
   "coreSummary": ["bullet 1", "bullet 2", "bullet 3"],
@@ -1486,8 +2910,7 @@ Respond in this EXACT JSON format (no markdown, no code fence, just the JSON obj
   ]
 }
 
-IMPORTANT:
-- Grounding: {{grounding_rule}}
+## Output Rules
 - titleVerdict must be a single sentence.
 - coreSummary: at most 3 bullets, plain language.
 - isLongForm: true only for long articles/videos that meaningfully benefit from a chapter map.
@@ -1495,9 +2918,10 @@ IMPORTANT:
 - chapterMap when Video Sections are listed above: return EXACTLY one entry per listed section, using the section's start time as "time" \u2014 give each a short title and a 1-sentence summary of what happens between that section and the next.
 - chapterMap when NO chapters or sections were provided: empty array (the content is not a timestamped video).
 - customQuestionAnswers: one entry per DISTINCT user question (empty array when none). Skip any user question that is equivalent in meaning to an Egg Key Question above or to another user question \u2014 answer it only once.
+{{shared_output_rules}}
 `;
 
-// src/prompts/egg-analysis.md
+// src/workflow/egg-analysis.md
 var egg_analysis_default = `You are a knowledge curator for the egg file "{{egg_file}}". Extract knowledge entries from the content below according to this egg's instructions.
 
 ## Egg Instructions
@@ -1512,14 +2936,17 @@ var egg_analysis_default = `You are a knowledge curator for the egg file "{{egg_
 {{content}}
 
 ## Task
-1. Answer each Key Question (if any) directly and concisely based on the content. Grounding: {{grounding_rule}}
-2. Extract Knowledge Entries: extract all substantive insights, concepts, frameworks, and findings from the content that fall within this egg's Scope, formatted strictly per the Formatting Rules:
+1. Follow action guide in Egg Instructions
+2. Answer each Key Question (if any) directly and concisely based on the content.
+3. Extract Knowledge Entries: extract all substantive insights, concepts, frameworks, and findings from the content that fall within this egg's Scope, formatted strictly per the Formatting Rules:
    - Follow the concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept**: short phrases" (without "[tag] " when the egg defines no tags), with the explanation as one indented sub-bullet and concrete examples from the content as further indented sub-bullets ("  - \u{1F3AF} Example: ...") when present. Name each Concept clearly.
    - Structured enumerations / frameworks (numbered lists, step-by-step methods, named frameworks): capture as ONE complete entry preserving EVERY item in order. Never summarize items away, never truncate.
    - Do NOT include author or source \u2014 they are appended automatically.
 
+## Output Format
 Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
 {
+  "language": "English",
   "keyQuestionAnswers": [
     {"question": "exact question text", "answer": "direct answer"}
   ],
@@ -1528,65 +2955,13 @@ Respond in this EXACT JSON format (no markdown, no code fence, just the JSON obj
   ]
 }
 
-IMPORTANT:
-- Grounding: {{grounding_rule}}
+## Output Rules:
+- language: the primary natural language of the egg note or extracted entries (e.g. "English", "Chinese", "Japanese", etc.).
 - extractedEntries: empty array if the content contains no substantive knowledge matching this egg's scope. "kind" is "insight" (default) or "list" (for structured enumerations).
+{{shared_output_rules}}
 `;
 
-// src/prompts/egg-combined.md
-var egg_combined_default = `You are a knowledge curator for the egg file "{{egg_file}}". Analyze the content below according to this egg's instructions.
-
-## Egg Instructions
-{{egg_instructions}}
-
-## Content to Analyze
-**Title:** {{title}}
-**Source:** {{url}}
-**Type:** {{source_type}}
-{{part_note}}{{chapters}}
-{{sections}}{{questions}}
-
-{{content}}
-
-## Task
-1. Follow the Action Guide:
-   - titleVerdict: provide a single, direct sentence resolving the core question in the title or intro.
-   - coreSummary: summarize the main concepts in plain language using at most 3 bullet points.
-   - chapterMap: timestamped breakdown for long-form / video content. Empty array if not long-form.
-2. Answer Key Questions: answer each Key Question from the egg instructions directly and concisely based on the content. Grounding: {{grounding_rule}}
-3. Answer User Questions: answer any custom user questions directly and concisely.
-4. Extract Knowledge Entries: extract all substantive insights, concepts, frameworks, and actionable knowledge from the content that fall within the egg's Scope, formatted strictly per the egg's Formatting Rules:
-   - Follow the concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept**: short phrases" (without "[tag] " when the egg defines no tags), with the explanation as one indented sub-bullet and concrete examples from the content as further indented sub-bullets ("  - \u{1F3AF} Example: ...") when present. Name each Concept clearly.
-   - Structured enumerations / frameworks (numbered lists, step-by-step methods, named frameworks): capture as ONE complete entry preserving EVERY item in order. Never summarize items away, never truncate.
-   - Do NOT include author or source \u2014 they are appended automatically.
-
-Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
-{
-  "titleVerdict": "direct answer to the title's question",
-  "coreSummary": ["bullet 1", "bullet 2", "bullet 3"],
-  "isLongForm": true,
-  "chapterMap": [
-    {"time": "00:12:34", "title": "chapter title", "summary": "one sentence"}
-  ],
-  "keyQuestionAnswers": [
-    {"question": "exact question text", "answer": "direct answer"}
-  ],
-  "customQuestionAnswers": [
-    {"question": "exact question text", "answer": "direct answer"}
-  ],
-  "extractedEntries": [
-    {"kind": "insight", "content": "- [tag] **Concept**: short phrases\\n  - explanation\\n  - \u{1F3AF} Example: ..."}
-  ]
-}
-
-IMPORTANT:
-- Grounding: {{grounding_rule}}
-- coreSummary: at most 3 bullets. chapterMap: empty array when isLongForm is false; keep exact timestamps from the video chapters when provided. When Video Sections are listed above, return EXACTLY one chapterMap entry per listed section, using the section's start time as "time" \u2014 give each a short title and a 1-sentence summary of what happens between that section and the next.
-- customQuestionAnswers: one entry per DISTINCT user question (empty array when none). Skip any user question that is equivalent in meaning to the egg's Key Questions above or to another user question \u2014 answer it only once.
-- extractedEntries: empty array if the content contains no substantive knowledge matching this egg's scope. "kind" is "insight" (default) or "list" (for structured enumerations).
-`;
-
-// src/prompts/follow-up.md
+// src/workflow/follow-up.md
 var follow_up_default = `You are a knowledge curator. Answer the user's follow-up questions about this content.
 
 ## Content to Analyze
@@ -1600,6 +2975,7 @@ var follow_up_default = `You are a knowledge curator. Answer the user's follow-u
 ## New Questions (answer each directly and concisely)
 {{questions}}
 
+## Output Format
 Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
 {
   "answers": [
@@ -1607,19 +2983,19 @@ Respond in this EXACT JSON format (no markdown, no code fence, just the JSON obj
   ]
 }
 
-IMPORTANT:
+## Output Rules:
 - One entry per question, in the same order.
-- Grounding: {{grounding_rule}}
 - If a question is equivalent to one in Previous Questions & Answers, answer briefly with the same conclusion instead of repeating it.
+{{shared_output_rules}}
 `;
 
-// src/prompts/egg-routing.md
+// src/workflow/egg-routing.md
 var egg_routing_default = 'Given this content and egg index, which egg file(s) does this content belong to? Return ONLY the file names, one per line. If none match, return "none".\n\n## Content\nTitle: {{title}}\nURL: {{url}}\n{{content}}\n\n## Egg Index\n{{index}}\n\nReturn matching file names (one per line):\n';
 
-// src/prompts/action-guide-default.md
-var action_guide_default_default = "1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.\n2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.\n3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.\n";
+// src/workflow/content-task-default.md
+var content_task_default_default = "1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.\n2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.\n3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.\n";
 
-// src/prompts/merge-unprocessed.md
+// src/workflow/merge-unprocessed.md
 var merge_unprocessed_default = `You are a knowledge curator for the egg file "{{egg_file}}". The Unprocessed section has accumulated {{unprocessed_count}} entries \u2014 merge them into the knowledge tree below.
 
 ## Formatting Rules
@@ -1641,14 +3017,18 @@ var merge_unprocessed_default = `You are a knowledge curator for the egg file "{
 7. If an entry's concept duplicates existing knowledge in the tree, drop it entirely.
 8. If an entry cannot be merged meaningfully, leave it in the "unprocessed" output.
 
+## Output Format
 Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
 {
   "knowledge": "the COMPLETE updated Knowledge section content as markdown \u2014 the existing tree with the merged entries nested in. Only the section BODY: do NOT include the '# Knowledge' heading line itself.",
   "unprocessed": "the entries that could not be merged (markdown), or an empty string when all were merged. Only the section BODY: do NOT include the '# Unprocessed' heading line itself."
 }
+
+## Output Rules:
+- Output Language: write ALL output text (knowledge entries, explanations) in {{output_language}}. Keep JSON keys in English.
 `;
 
-// src/prompts/aggregate-content.md
+// src/workflow/aggregate-content.md
 var aggregate_content_default = `You are a knowledge curator. The content below was too long for one pass and was analyzed in parts. Combine the per-part results into ONE coherent result for the whole content.
 
 ## Content
@@ -1661,10 +3041,9 @@ var aggregate_content_default = `You are a knowledge curator. The content below 
 {{questions}}
 
 ## Task
-1. Title Verdict: answer the question posed in the title (or intro) in a single direct sentence, drawing on ALL parts.
-2. Core Summary: at most 3 plain-language bullets covering the WHOLE content, not just one part.
-3. Answer each User Question directly and concisely. Grounding: {{grounding_rule}}
+{{content_task_default}}
 
+## Output Format
 Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
 {
   "titleVerdict": "direct answer to the title's question",
@@ -1674,18 +3053,15 @@ Respond in this EXACT JSON format (no markdown, no code fence, just the JSON obj
   ]
 }
 
-IMPORTANT:
+## Output Rules
 - customQuestionAnswers: one entry per DISTINCT user question (empty array when none).
-- Grounding: {{grounding_rule}}
+{{shared_output_rules}}
 `;
 
-// src/prompts/aggregate-egg.md
-var aggregate_egg_default = 'You are a knowledge curator for the egg file "{{egg_file}}". The content was too long for one pass and was analyzed against this egg in parts. Decide for the content AS A WHOLE and synthesize knowledge entries across parts.\n\n## Egg Instructions\n{{egg_instructions}}\n\n## Per-Part Findings\n{{chunk_findings}}\n\n## Task\n1. Synthesize Knowledge Entries across parts into "novelDelta":\n   - Connect and assemble related findings that spread across different parts (e.g. principles of a framework, steps of a methodology, or concepts introduced in one part and expanded in another) into complete, unified knowledge entries.\n   - When a concept was partially mentioned in an earlier part and fully explained in a later part, merge them into the single complete entry.\n   - For standalone insights from individual parts, preserve them as formatted entries.\n   - Determine "parent" in the Knowledge Tree for each entry.\n2. Answer each Key Question (if any) for the whole content, directly and concisely. Grounding: {{grounding_rule}}\n3. Apply the Rejection Criteria to the whole content \u2014 set rejected to true with a one-line reason when it is noise for this egg.\n4. Decide: should the user spend time reading/watching this fully? Consider the reject criteria and whether the parts together add new insight.\n\nRespond in this EXACT JSON format (no markdown, no code fence, just the JSON object):\n{\n  "novelDelta": [\n    {"parent": "parent heading in knowledge tree or empty string", "kind": "insight", "content": "- formatted entry text\\n  - sub bullets"}\n  ],\n  "keyQuestionAnswers": [\n    {"question": "exact question text", "answer": "direct answer"}\n  ],\n  "rejected": false,\n  "rejectReason": "",\n  "readVerdict": true,\n  "readVerdictReason": "one-line reason"\n}\n';
+// src/workflow/aggregate-egg.md
+var aggregate_egg_default = 'You are a knowledge curator for the egg file "{{egg_file}}". The content was too long for one pass and was analyzed against this egg in parts. Decide for the content AS A WHOLE and synthesize knowledge entries across parts.\n\n## Egg Instructions\n{{egg_instructions}}\n\n## Per-Part Findings\n{{chunk_findings}}\n\n## Task\n1. Synthesize Knowledge Entries across parts into "novelDelta":\n   - Connect and assemble related findings that spread across different parts (e.g. principles of a framework, steps of a methodology, or concepts introduced in one part and expanded in another) into complete, unified knowledge entries.\n   - When a concept was partially mentioned in an earlier part and fully explained in a later part, merge them into the single complete entry.\n   - For standalone insights from individual parts, preserve them as formatted entries.\n   - Determine "parent" in the Knowledge Tree for each entry.\n2. Answer each Key Question (if any) for the whole content, directly and concisely.\n3. Apply the Rejection Criteria to the whole content \u2014 set rejected to true with a one-line reason when it is noise for this egg.\n4. Decide: should the user spend time reading/watching this fully? Consider the reject criteria and whether the parts together add new insight.\n\n## Output Format\nRespond in this EXACT JSON format (no markdown, no code fence, just the JSON object):\n{\n  "novelDelta": [\n    {"parent": "parent heading in knowledge tree or empty string", "kind": "insight", "content": "- formatted entry text\\n  - sub bullets"}\n  ],\n  "keyQuestionAnswers": [\n    {"question": "exact question text", "answer": "direct answer"}\n  ],\n  "rejected": false,\n  "rejectReason": "",\n  "readVerdict": true,\n  "readVerdictReason": "one-line reason"\n}\n\n## Output Rules:\n{{shared_output_rules}}\n';
 
-// src/prompts/suggest-egg.md
-var suggest_egg_default = 'You are a knowledge curator. The content below matched no existing egg (knowledge file). Suggest a new egg to capture content like this.\n\n## Content\n**Title:** {{title}}\n**Source:** {{url}}\n\n## What the content is about\n{{summary}}\n\n## Task\nSuggest a short snake_case egg name (2-4 words, e.g. "productivity" or "quant_finance") and a one-line description of what this egg captures (used as its routing description).\n\nRespond in this EXACT JSON format (no markdown, no code fence, just the JSON object):\n{\n  "name": "snake_case_name",\n  "description": "one line description"\n}\n';
-
-// src/prompts/egg-compare.md
+// src/workflow/egg-compare.md
 var egg_compare_default = `You are a knowledge curator for the egg file "{{egg_file}}".
 Your task is to compare newly extracted candidate knowledge entries from a source against this egg's existing Knowledge tree and Unprocessed entries to identify genuinely NEW insights and decide if the source is worth reading.
 
@@ -1719,6 +3095,7 @@ Your task is to compare newly extracted candidate knowledge entries from a sourc
    - If novel, valuable insights were found, set "readVerdict": true with a one-line "readVerdictReason".
    - If redundant, superficial, or noise, set "readVerdict": false with a one-line "readVerdictReason".
 
+## Output Format
 Respond in this EXACT JSON format (no markdown, no code fence, just the JSON object):
 {
   "novelDelta": [
@@ -1733,11 +3110,17 @@ Respond in this EXACT JSON format (no markdown, no code fence, just the JSON obj
   "readVerdictReason": "one-line explanation"
 }
 
-IMPORTANT:
-- Grounding: {{grounding_rule}}
+## Output Rules:
 - "parent" must match the exact text of a heading or bullet in Current Knowledge ("" if none).
 - "kind" is "insight" or "list".
+{{shared_output_rules}}
 `;
+
+// src/workflow/localize-egg.md
+var localize_egg_default = 'You are a knowledge curator for NutEgg.\n\n## Egg Description\n{{description}}\n\n## Egg Template\n{{template}}\n\n## Task\nTranslate and adapt the concrete instructions, questions, criteria, and rule descriptions in the template above so they use the SAME LANGUAGE as the egg description: "{{description}}".\n\n## Output Rules:\n1. Language: All explanations, questions, criteria, and rule guidance must be written in the same language as the egg description: "{{description}}".\n2. Egg Parser Structure: The structure and these exact labels MUST remain in English:\n   - Frontmatter (`---`, `topic: ...`, `status: ...`, `last_updated: ...`, `language: <detected language name in English, e.g. English, Chinese, Japanese, Korean, Spanish, French, German, Russian>`)\n   - Callout: `> [!abstract]- Instructions:`\n   - Bold section labels: `> **Scope:**`, `> **Action Guide:**`, `> **Key Questions:**`, `> **Rejection Criteria:**`, `> **Formatting Rules:**`\n   - Step labels in Action Guide: `1. Title Verdict:`, `2. Core Summary:`, `3. Chapter Map (Long-form only):`, `4. Novel Delta:`, `5. Decide:`\n   - Headings: `# Knowledge` and `# Unprocessed`\n   - Tag names in Formatting Rules: `[concept]`, `[architecture]`, `[method]`, `[benchmark]`, `[explain]`, `[fact]`, `[example]`\n\nOutput ONLY the complete updated egg file markdown. Do NOT wrap in markdown code fences.\n\n';
+
+// src/workflow/shared-output-rules.md
+var shared_output_rules_default = '- Grounding: The content is the ONLY source of truth for every answer and summary you produce. Report what the content actually says even when it contradicts common sense or well-known facts \u2014 never correct, refute, or supplement it with outside knowledge. If the content does not address a question, say "Not covered in this content".\n- Output Language: Write ALL output text (verdicts, summaries, answers, knowledge entries, reasons) in {{output_language}}. Keep all JSON keys in English.';
 
 // src/prompt-templates.ts
 var PROMPTS = {
@@ -1745,24 +3128,24 @@ var PROMPTS = {
   contentAnalysis: content_analysis_default,
   /** Step 1 extraction — content against one egg using instructions only. */
   eggAnalysis: egg_analysis_default,
-  /** Step 1 single-egg extraction (content summary + key questions + candidate entries). */
-  eggCombined: egg_combined_default,
   /** Step 2 comparison — candidate knowledge entries vs egg knowledge tree. */
   eggCompare: egg_compare_default,
   /** Follow-up questions after the initial analysis. */
   followUp: follow_up_default,
   /** Egg routing — match content to egg files from _index.md. */
   eggRouting: egg_routing_default,
-  /** Default Action Guide when no egg provides one. */
-  actionGuideDefault: action_guide_default_default.trim(),
+  /** Default content analysis task (Title Verdict, Core Summary, Chapter Map). */
+  contentTaskDefault: content_task_default_default.trim(),
   /** Merge 20+ Unprocessed entries into the Knowledge tree. */
   mergeUnprocessed: merge_unprocessed_default,
   /** Combine per-part results into one result for long content. */
   aggregateContent: aggregate_content_default,
   /** Per-egg verdict + key questions for long content (after per-part delta). */
   aggregateEgg: aggregate_egg_default,
-  /** Suggest a new egg for content that matched no existing egg. */
-  suggestEgg: suggest_egg_default
+  /** Localize egg template matching the description language while keeping parser structure in English. */
+  localizeEgg: localize_egg_default,
+  /** Shared output rules (grounding + language reference) injected into prompts. */
+  sharedOutputRules: shared_output_rules_default.trim()
 };
 function renderPrompt(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (match, key) => {
@@ -1771,53 +3154,173 @@ function renderPrompt(template, vars) {
   });
 }
 
-// src/prompts/grounding-rule.md
-var grounding_rule_default = 'The content is the ONLY source of truth for every answer and summary you produce. Report what the content actually says even when it contradicts common sense or well-known facts \u2014 never correct, refute, or supplement it with outside knowledge. If the content does not address a question, say "Not covered in this content".\n';
-
 // src/ai-processor.ts
-var GROUNDING_RULE = grounding_rule_default.trim();
-var CONTENT_WINDOW_CHARS = 3e4;
-var CHUNK_CHARS = CONTENT_WINDOW_CHARS;
-var SECTION_SECS = 300;
+var DEFAULT_CHUNK_WINDOW_CHARS = 3e4;
+var DEFAULT_SECTION_SECS = 300;
 var MERGE_THRESHOLD = 20;
 var AIProcessor = class {
   plugin;
   constructor(plugin) {
     this.plugin = plugin;
   }
+  get chunkWindowChars() {
+    const val = this.plugin?.settings?.chunkWindowChars;
+    return typeof val === "number" && val > 0 ? val : DEFAULT_CHUNK_WINDOW_CHARS;
+  }
+  get sectionGridSeconds() {
+    const val = this.plugin?.settings?.sectionGridSeconds;
+    return typeof val === "number" && val > 0 ? val : DEFAULT_SECTION_SECS;
+  }
+  getPrompt(key) {
+    return this.plugin.workflowManager?.getPrompt(key) || PROMPTS[key] || "";
+  }
+  /**
+   * Output rules for Stage 1 content analysis (follows settings.contentOutputLanguage).
+   */
+  getContentOutputRules() {
+    const langSetting = this.plugin.settings?.contentOutputLanguage || "same-as-content";
+    const isSame = langSetting === "same-as-content";
+    const outputLanguage = isSame ? "the same language as the captured content" : langSetting;
+    const tpl = this.getPrompt("sharedOutputRules");
+    return renderPrompt(tpl, { output_language: outputLanguage }).trim();
+  }
+  /**
+   * Output rules for Stage 2 egg analysis (follows the egg's language property).
+   */
+  getEggOutputRules(eggOrLanguage = "", fallbackDescription = "") {
+    let lang = "";
+    let desc = fallbackDescription;
+    if (typeof eggOrLanguage === "object" && eggOrLanguage !== null) {
+      lang = (eggOrLanguage.language || "").trim();
+      desc = desc || (eggOrLanguage.indexDescription || "").trim();
+    } else {
+      lang = (eggOrLanguage || "").trim();
+    }
+    const pluginSetting = this.plugin.settings?.contentOutputLanguage;
+    const pluginLang = pluginSetting && pluginSetting !== "same-as-content" ? pluginSetting.trim() : "";
+    const outputLanguage = lang ? lang.includes(" ") && !/^[A-Za-z]+$/.test(lang) ? `the same language as this reference: "${lang}"` : lang : pluginLang ? pluginLang : "the same language as this egg note's existing knowledge (or the captured content if the egg has no existing knowledge)";
+    const tpl = this.getPrompt("sharedOutputRules");
+    return renderPrompt(tpl, {
+      output_language: outputLanguage
+    }).trim();
+  }
   async analyze(capture, eggs) {
-    if (!this.plugin.settings.aiApiKey) {
+    if (!isAIConfigured(this.plugin.settings)) {
       return this.fallbackAnalysis(capture, eggs);
+    }
+    const contentAnalysis = await this.analyzeContent(capture);
+    return this.analyzeEggs(capture, eggs, contentAnalysis);
+  }
+  /**
+   * Stage 1 — content summary + chapter map + custom question answers.
+   * Handles long-form chunked content with aggregation or single-chunk content.
+   */
+  async analyzeContent(capture) {
+    if (!isAIConfigured(this.plugin.settings)) {
+      return {
+        titleVerdict: capture.title,
+        coreSummary: [capture.title],
+        isLongForm: false,
+        chapterMap: [],
+        customQuestionAnswers: (capture.questions || []).map((q) => ({
+          question: q,
+          answer: "No API key configured \u2014 cannot answer."
+        }))
+      };
     }
     const chunks = this.chunkContent(capture.content, capture.chapters || []);
     if (chunks.length > 1) {
-      return this.analyzeChunked(capture, eggs, chunks);
+      const partResults = await Promise.all(
+        chunks.map(
+          (chunk) => this.callContentChunk(
+            {
+              ...capture,
+              content: chunk.content,
+              chapters: chunk.chapters,
+              sections: chunk.sections,
+              questions: []
+            },
+            this.partNote(chunk)
+          )
+        )
+      );
+      const summary = await this.aggregateContent(
+        capture,
+        partResults.map((r, i) => ({
+          part: i + 1,
+          startTime: chunks[i].startTime,
+          bullets: r.coreSummary
+        }))
+      );
+      const chapterMap = partResults.flatMap((r) => r.chapterMap);
+      return {
+        titleVerdict: summary.titleVerdict,
+        coreSummary: summary.coreSummary,
+        isLongForm: true,
+        chapterMap,
+        customQuestionAnswers: summary.customQuestionAnswers
+      };
     }
     const single = chunks[0];
     const effective = {
       ...capture,
-      chapters: single.chapters,
-      sections: single.sections
+      chapters: single?.chapters,
+      sections: single?.sections
     };
-    let contentAnalysis;
-    let eggResults = [];
-    if (eggs.length === 1) {
-      const combined = await this.analyzeSingleEgg(effective, eggs[0]);
-      contentAnalysis = {
-        titleVerdict: combined.titleVerdict,
-        coreSummary: combined.coreSummary,
-        isLongForm: combined.isLongForm,
-        chapterMap: combined.chapterMap,
-        customQuestionAnswers: combined.customQuestionAnswers
+    return this.callContentChunk(effective, "");
+  }
+  /**
+   * Stage 2 — per-egg extraction, comparison against egg knowledge tree,
+   * and final read verdict synthesis. Works identically for 1 or N eggs.
+   */
+  async analyzeEggs(capture, eggs, contentAnalysis) {
+    if (!isAIConfigured(this.plugin.settings) || eggs.length === 0) {
+      return {
+        ...contentAnalysis,
+        shouldRead: eggs.length === 0 ? false : true,
+        shouldReadReason: eggs.length === 0 ? "No matching egg found in vault." : this.plugin.settings.aiProvider === "local" ? "Local LLM not configured." : "No API key configured.",
+        matchedEggs: eggs.map((e) => e.fileName),
+        eggResults: [],
+        newKnowledge: []
       };
-      eggResults = [combined];
+    }
+    const chunks = this.chunkContent(capture.content, capture.chapters || []);
+    let eggResults = [];
+    if (chunks.length > 1) {
+      for (const egg of eggs) {
+        const partEggs = await Promise.all(
+          chunks.map(
+            (chunk) => this.analyzeAgainstEgg(
+              { ...capture, content: chunk.content },
+              egg,
+              this.partNote(chunk)
+            )
+          )
+        );
+        const aggregate = await this.aggregateEgg(
+          egg,
+          chunks.map((chunk, i) => ({
+            part: i + 1,
+            startTime: chunk.startTime,
+            delta: partEggs[i]?.novelDelta || []
+          }))
+        );
+        const novelDelta = aggregate.novelDelta && aggregate.novelDelta.length > 0 ? aggregate.novelDelta : this.mergePerPartDeltas(partEggs.flatMap((r) => r?.novelDelta || []));
+        const redundantEntries = partEggs.flatMap((r) => r?.redundantEntries || []);
+        const existingKnowledge = partEggs.find((r) => r?.existingKnowledge)?.existingKnowledge || egg.knowledge;
+        eggResults.push({
+          egg: egg.fileName,
+          keyQuestionAnswers: aggregate.keyQuestionAnswers,
+          novelDelta,
+          redundantEntries,
+          existingKnowledge,
+          rejected: aggregate.rejected,
+          rejectReason: aggregate.rejectReason,
+          readVerdict: aggregate.readVerdict,
+          readVerdictReason: aggregate.readVerdictReason
+        });
+      }
     } else {
-      const guide = (eggs[0]?.actionGuide || PROMPTS.actionGuideDefault).trim();
-      contentAnalysis = await this.analyzeContent(
-        capture,
-        guide,
-        eggs.flatMap((e) => e.keyQuestions)
-      );
       eggResults = (await Promise.all(
         eggs.map((egg) => this.analyzeAgainstEgg(capture, egg))
       )).filter((r) => r !== null);
@@ -1839,9 +3342,9 @@ var AIProcessor = class {
     };
   }
   /** Phase 1 — content-level summary + chapter map + custom question answers. */
-  async analyzeContent(capture, actionGuide, eggKeyQuestions, partNote = "") {
-    const prompt = renderPrompt(PROMPTS.contentAnalysis, {
-      action_guide: actionGuide,
+  async callContentChunk(capture, partNote = "") {
+    const prompt = renderPrompt(this.getPrompt("contentAnalysis"), {
+      content_task_default: this.getPrompt("contentTaskDefault"),
       title: capture.title,
       url: capture.url,
       source_type: capture.sourceType,
@@ -1852,14 +3355,11 @@ var AIProcessor = class {
         capture.questions,
         "User Questions (answer each directly and concisely)"
       ),
-      egg_key_questions: this.questionsBlock(
-        eggKeyQuestions,
-        "Egg Key Questions (answered separately \u2014 skip equivalent user questions)"
-      ),
-      content: this.truncate(capture.content, CONTENT_WINDOW_CHARS),
-      grounding_rule: GROUNDING_RULE
+      content: this.truncate(capture.content, this.chunkWindowChars),
+      shared_output_rules: this.getContentOutputRules()
     });
-    const response = await this.callAI(prompt, 1200);
+    const configuredMax = this.plugin?.settings?.contentAnalysisMaxTokens || 16384;
+    const response = await this.callAI(prompt, configuredMax);
     const parsed = this.parseJson(response, "content-analysis");
     return {
       titleVerdict: String(parsed.titleVerdict || "Could not generate a verdict."),
@@ -1882,24 +3382,42 @@ var AIProcessor = class {
    *   Step 2: Compare candidate entries against egg's Knowledge tree & Unprocessed entries to find novel delta and read verdict.
    */
   async analyzeAgainstEgg(capture, egg, partNote = "") {
-    const prompt = renderPrompt(PROMPTS.eggAnalysis, {
+    const prompt = renderPrompt(this.getPrompt("eggAnalysis"), {
       egg_file: egg.fileName,
       egg_instructions: this.plugin.eggParser.formatEggInstructionsForPrompt(egg),
       title: capture.title,
       url: capture.url,
       source_type: capture.sourceType,
       part_note: partNote,
-      content: this.truncate(capture.content, CONTENT_WINDOW_CHARS),
-      grounding_rule: GROUNDING_RULE
+      content: this.truncate(capture.content, this.chunkWindowChars),
+      shared_output_rules: this.getEggOutputRules(egg)
     });
     try {
-      const response = await this.callAI(prompt, 1500);
+      const tokenBudget = this.plugin?.settings?.contentAnalysisMaxTokens || 16384;
+      const response = await this.callAI(prompt, tokenBudget);
       const parsed = this.parseJson(response, "egg-analysis");
       const keyQuestionAnswers = this.parseKeyAnswers(parsed.keyQuestionAnswers);
       const extractedEntries = this.parseExtractedEntries(parsed.extractedEntries);
+      const detectedLanguage = typeof parsed.language === "string" ? parsed.language.trim() : "";
+      if (!egg.language && detectedLanguage) {
+        egg.language = detectedLanguage;
+        try {
+          const file = this.plugin.app.vault.getAbstractFileByPath(egg.fileName);
+          if (file) {
+            const content = await this.plugin.app.vault.read(file);
+            const updated = insertEggLanguage(content, detectedLanguage);
+            if (updated !== content) {
+              await this.plugin.app.vault.modify(file, updated);
+            }
+          }
+        } catch (err) {
+          console.warn(`[NutEgg] Failed to persist LLM-detected language to ${egg.fileName}:`, err);
+        }
+      }
       const diff = await this.compareEggKnowledge(capture, egg, extractedEntries);
       return {
         egg: egg.fileName,
+        language: detectedLanguage || egg.language || void 0,
         keyQuestionAnswers,
         extractedEntries,
         novelDelta: diff.novelDelta,
@@ -1918,61 +3436,6 @@ var AIProcessor = class {
     }
   }
   /**
-   * Single egg:
-   *   Step 1: Extract candidate knowledge entries + content summary using ONLY the egg instructions.
-   *   Step 2: Compare candidate entries against the egg's Current Knowledge & Unprocessed entries.
-   */
-  async analyzeSingleEgg(capture, egg, partNote = "") {
-    const prompt = renderPrompt(PROMPTS.eggCombined, {
-      egg_file: egg.fileName,
-      egg_instructions: this.plugin.eggParser.formatEggInstructionsForPrompt(egg),
-      title: capture.title,
-      url: capture.url,
-      source_type: capture.sourceType,
-      part_note: partNote,
-      chapters: this.chaptersBlock(capture.chapters),
-      sections: this.sectionsBlock(capture.sections),
-      questions: this.questionsBlock(
-        capture.questions,
-        "User Questions (answer each directly and concisely)"
-      ),
-      content: this.truncate(capture.content, CONTENT_WINDOW_CHARS),
-      grounding_rule: GROUNDING_RULE
-    });
-    const response = await this.callAI(prompt, 1500);
-    const parsed = this.parseJson(response, "egg-combined");
-    const contentAnalysis = {
-      titleVerdict: String(parsed.titleVerdict || "Could not generate a verdict."),
-      coreSummary: Array.isArray(parsed.coreSummary) ? parsed.coreSummary.map(String).slice(0, 3) : [],
-      isLongForm: parsed.isLongForm === true,
-      chapterMap: this.completeChapterMap(
-        Array.isArray(parsed.chapterMap) ? parsed.chapterMap.filter((c) => c && (c.time || c.title)).map((c) => ({
-          time: String(c.time || ""),
-          title: String(c.title || ""),
-          summary: String(c.summary || "")
-        })) : [],
-        capture.sections
-      ),
-      customQuestionAnswers: this.parseKeyAnswers(parsed.customQuestionAnswers)
-    };
-    const keyQuestionAnswers = this.parseKeyAnswers(parsed.keyQuestionAnswers);
-    const extractedEntries = this.parseExtractedEntries(parsed.extractedEntries);
-    const diff = await this.compareEggKnowledge(capture, egg, extractedEntries);
-    return {
-      ...contentAnalysis,
-      egg: egg.fileName,
-      keyQuestionAnswers,
-      extractedEntries,
-      novelDelta: diff.novelDelta,
-      redundantEntries: diff.redundantEntries,
-      existingKnowledge: diff.existingKnowledge,
-      rejected: diff.rejected,
-      rejectReason: diff.rejectReason,
-      readVerdict: diff.readVerdict,
-      readVerdictReason: diff.readVerdictReason
-    };
-  }
-  /**
    * Step 2 — Compare extracted candidate knowledge entries against the egg's
    * existing Knowledge tree and Unprocessed entries to find novel delta and read verdict.
    */
@@ -1989,7 +3452,7 @@ var AIProcessor = class {
         readVerdictReason: "No knowledge entries extracted matching this egg's scope."
       };
     }
-    const prompt = renderPrompt(PROMPTS.eggCompare, {
+    const prompt = renderPrompt(this.getPrompt("eggCompare"), {
       egg_file: egg.fileName,
       title: capture.title,
       url: capture.url,
@@ -1998,10 +3461,11 @@ var AIProcessor = class {
       rejection_criteria: egg.rejectionCriteria.length > 0 ? egg.rejectionCriteria.map((c) => `- ${c}`).join("\n") : "(none)",
       extracted_entries: extractedEntries.map((e, i) => `### Entry ${i + 1} (${e.kind || "insight"})
 ${e.content}`).join("\n\n"),
-      grounding_rule: GROUNDING_RULE
+      shared_output_rules: this.getEggOutputRules(egg)
     });
     try {
-      const response = await this.callAI(prompt, 1500);
+      const tokenBudget = this.plugin?.settings?.contentAnalysisMaxTokens || 16384;
+      const response = await this.callAI(prompt, tokenBudget);
       const parsed = this.parseJson(response, "egg-compare");
       const novelDelta = Array.isArray(parsed.novelDelta) ? parsed.novelDelta.filter((d) => d && d.content).map((d) => ({
         parent: String(d.parent || ""),
@@ -2068,95 +3532,6 @@ ${e.content}`).join("\n\n"),
     }).filter((e) => e.content.length > 0);
   }
   /**
-   * Long content: one analysis call per part, then aggregate calls that
-   * combine the parts into a single result.
-   *   Phase 1 — per-part content analysis → aggregate (verdict, 3-bullet
-   *   summary, custom questions). Chapter maps are unioned directly.
-   *   Phase 2 — per egg: per-part delta calls → aggregate (key questions,
-   *   reject, read verdict). Novel deltas are the union of the parts.
-   */
-  async analyzeChunked(capture, eggs, chunks) {
-    const guide = (eggs[0]?.actionGuide || PROMPTS.actionGuideDefault).trim();
-    const partResults = await Promise.all(
-      chunks.map(
-        (chunk) => this.analyzeContent(
-          {
-            ...capture,
-            content: chunk.content,
-            chapters: chunk.chapters,
-            sections: chunk.sections,
-            questions: []
-          },
-          guide,
-          eggs.flatMap((e) => e.keyQuestions),
-          this.partNote(chunk)
-        )
-      )
-    );
-    const summary = await this.aggregateContent(
-      capture,
-      partResults.map((r, i) => ({
-        part: i + 1,
-        startTime: chunks[i].startTime,
-        bullets: r.coreSummary
-      }))
-    );
-    const chapterMap = partResults.flatMap((r) => r.chapterMap);
-    const eggResults = [];
-    for (const egg of eggs) {
-      const partEggs = await Promise.all(
-        chunks.map(
-          (chunk) => this.analyzeAgainstEgg(
-            { ...capture, content: chunk.content },
-            egg,
-            this.partNote(chunk)
-          )
-        )
-      );
-      const aggregate = await this.aggregateEgg(
-        egg,
-        chunks.map((chunk, i) => ({
-          part: i + 1,
-          startTime: chunk.startTime,
-          delta: partEggs[i]?.novelDelta || []
-        }))
-      );
-      const novelDelta = aggregate.novelDelta && aggregate.novelDelta.length > 0 ? aggregate.novelDelta : this.mergePerPartDeltas(partEggs.flatMap((r) => r?.novelDelta || []));
-      const redundantEntries = partEggs.flatMap((r) => r?.redundantEntries || []);
-      const existingKnowledge = partEggs.find((r) => r?.existingKnowledge)?.existingKnowledge || egg.knowledge;
-      eggResults.push({
-        egg: egg.fileName,
-        keyQuestionAnswers: aggregate.keyQuestionAnswers,
-        novelDelta,
-        redundantEntries,
-        existingKnowledge,
-        rejected: aggregate.rejected,
-        rejectReason: aggregate.rejectReason,
-        readVerdict: aggregate.readVerdict,
-        readVerdictReason: aggregate.readVerdictReason
-      });
-    }
-    const verdict = this.mergeVerdict(eggResults);
-    const newKnowledge = eggResults.flatMap(
-      (r) => r.novelDelta.map((d) => ({
-        egg: r.egg,
-        parent: d.parent,
-        content: d.content
-      }))
-    );
-    return {
-      titleVerdict: summary.titleVerdict,
-      coreSummary: summary.coreSummary,
-      isLongForm: true,
-      chapterMap,
-      customQuestionAnswers: summary.customQuestionAnswers,
-      ...verdict,
-      matchedEggs: eggs.map((e) => e.fileName),
-      eggResults,
-      newKnowledge
-    };
-  }
-  /**
    * Deduplicate and merge per-part deltas. When multiple parts report on the same concept,
    * prefer the fuller, more comprehensive entry over a partial or stub mention.
    */
@@ -2188,7 +3563,7 @@ ${e.content}`).join("\n\n"),
   }
   /** Aggregate the per-part content summaries into one result. */
   async aggregateContent(capture, chunkSummaries) {
-    const prompt = renderPrompt(PROMPTS.aggregateContent, {
+    const prompt = renderPrompt(this.getPrompt("aggregateContent"), {
       title: capture.title,
       url: capture.url,
       chunk_summaries: chunkSummaries.map((c) => {
@@ -2201,10 +3576,11 @@ ${bullets || "- (no summary)"}`;
         capture.questions,
         "User Questions (answer each directly and concisely)"
       ),
-      grounding_rule: GROUNDING_RULE
+      content_task_default: this.getPrompt("contentTaskDefault"),
+      shared_output_rules: this.getContentOutputRules()
     });
     const response = await this.callAI(prompt, 800);
-    const parsed = this.parseJson(response, "follow-up");
+    const parsed = this.parseJson(response, "aggregate-content");
     return {
       titleVerdict: String(parsed.titleVerdict || "Could not generate a verdict."),
       coreSummary: Array.isArray(parsed.coreSummary) ? parsed.coreSummary.map(String).slice(0, 3) : [],
@@ -2213,7 +3589,7 @@ ${bullets || "- (no summary)"}`;
   }
   /** Aggregate per-part delta findings into the egg's key answers + verdict. */
   async aggregateEgg(egg, chunkFindings) {
-    const prompt = renderPrompt(PROMPTS.aggregateEgg, {
+    const prompt = renderPrompt(this.getPrompt("aggregateEgg"), {
       egg_file: egg.fileName,
       egg_instructions: this.plugin.eggParser.formatEggForPrompt(egg),
       chunk_findings: chunkFindings.map((f) => {
@@ -2222,7 +3598,7 @@ ${bullets || "- (no summary)"}`;
         return `## Part ${f.part} of ${chunkFindings.length}${at}
 ${delta || "- (no novel delta)"}`;
       }).join("\n\n"),
-      grounding_rule: GROUNDING_RULE
+      shared_output_rules: this.getEggOutputRules(egg)
     });
     const response = await this.callAI(prompt, 1500);
     const parsed = this.parseJson(response, "aggregate-egg");
@@ -2240,32 +3616,35 @@ ${delta || "- (no novel delta)"}`;
     };
   }
   /**
-   * Suggest a new egg (name + description) for content that matched no
-   * existing egg. Returns null when unavailable (no API key, AI failure).
+   * Localize an egg template (from templates/egg.md) into the same language as
+   * the egg description. Keeps the structure and parser keywords in English.
+   * Returns null when unavailable (no API key, AI error).
    */
-  async suggestEgg(capture, summary) {
-    if (!this.plugin.settings.aiApiKey)
+  async localizeEggTemplate(templateContent, description) {
+    if (!isAIConfigured(this.plugin.settings))
       return null;
     try {
-      const prompt = renderPrompt(PROMPTS.suggestEgg, {
-        title: capture.title,
-        url: capture.url,
-        summary: summary || ""
+      const prompt = renderPrompt(this.getPrompt("localizeEgg"), {
+        description,
+        template: templateContent
       });
-      const response = await this.callAI(prompt, 1500);
-      const parsed = this.parseJson(response, "aggregate-egg");
-      const name = String(parsed.name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
-      if (!name)
-        return null;
-      return { name, description: String(parsed.description || "").trim() };
+      const maxTokens = Math.max(8192, this.plugin?.settings?.contentAnalysisMaxTokens || 8192);
+      const response = await this.callAI(prompt, maxTokens);
+      let text = response.trim();
+      text = text.replace(/^```[a-z]*\s*\n/i, "").replace(/\n```$/g, "").trim();
+      if (text.includes("[!abstract]") && text.includes("**Scope:**") && text.includes("**Action Guide:**") && text.includes("# Knowledge") && text.includes("# Unprocessed")) {
+        const language = extractEggLanguage(text);
+        return { content: text, language };
+      }
+      return null;
     } catch (err) {
-      console.warn("[NutEgg] Egg suggestion failed:", err);
+      console.warn("[NutEgg] AI egg template localization failed:", err);
       return null;
     }
   }
   // --- Chunking ---
   /**
-   * Split content into ≤CHUNK_CHARS parts. Timestamped transcripts
+   * Split content into ≤chunkWindowChars parts. Timestamped transcripts
    * (YouTube) are split at caption lines and chapters are attached to the
    * chunk covering their start time; plain text is split at paragraphs.
    */
@@ -2275,7 +3654,8 @@ ${delta || "- (no novel delta)"}`;
     if (firstTsIdx !== -1) {
       return this.timestampedChunks(lines, firstTsIdx, chapters);
     }
-    if (content.length <= CHUNK_CHARS) {
+    const chunkSize = this.chunkWindowChars;
+    if (content.length <= chunkSize) {
       return [
         { index: 0, total: 1, content, chapters, startTime: "", sections: [] }
       ];
@@ -2283,6 +3663,7 @@ ${delta || "- (no novel delta)"}`;
     return this.paragraphChunks(content, chapters);
   }
   paragraphChunks(content, chapters) {
+    const chunkSize = this.chunkWindowChars;
     const paras = content.split(/\n\n+/);
     const chunks = [];
     let buf = [];
@@ -2295,13 +3676,13 @@ ${delta || "- (no novel delta)"}`;
       bufChars = 0;
     };
     for (const p of paras) {
-      if (p.length > CHUNK_CHARS) {
+      if (p.length > chunkSize) {
         flush();
-        for (let i = 0; i < p.length; i += CHUNK_CHARS) {
+        for (let i = 0; i < p.length; i += chunkSize) {
           chunks.push({
             index: 0,
             total: 0,
-            content: p.slice(i, i + CHUNK_CHARS),
+            content: p.slice(i, i + chunkSize),
             chapters: [],
             startTime: "",
             sections: []
@@ -2309,7 +3690,7 @@ ${delta || "- (no novel delta)"}`;
         }
         continue;
       }
-      if (bufChars + p.length > CHUNK_CHARS)
+      if (bufChars + p.length > chunkSize)
         flush();
       buf.push(p);
       bufChars += p.length + 2;
@@ -2370,8 +3751,9 @@ ${delta || "- (no novel delta)"}`;
       buf = [];
       bufChars = 0;
     };
+    const chunkSize = this.chunkWindowChars;
     for (const u of units) {
-      if (bufChars + u.line.length > CHUNK_CHARS)
+      if (bufChars + u.line.length > chunkSize)
         flush();
       if (!buf.length)
         startSec = u.sec;
@@ -2396,7 +3778,7 @@ ${delta || "- (no novel delta)"}`;
     }
     if (chapters.length === 0) {
       const begins = chunks.map((c) => this.toSeconds(c.startTime));
-      for (let t = 0; t < lastCaptionSec + 1; t += SECTION_SECS) {
+      for (let t = 0; t < lastCaptionSec + 1; t += this.sectionGridSeconds) {
         let idx = 0;
         for (let i = begins.length - 1; i >= 0; i--) {
           if (t >= begins[i]) {
@@ -2508,30 +3890,31 @@ ${c.content}`;
    * call, grounded in the same content. Previous Q&A pairs are included as
    * context so the model can refer back instead of repeating answers.
    */
-  async askFollowUp(capture, questions, priorQa) {
+  async askFollowUp(capture, questions, priorQa = []) {
     if (questions.length === 0)
       return [];
-    if (!this.plugin.settings.aiApiKey) {
+    if (!isAIConfigured(this.plugin.settings)) {
+      const msg = this.plugin.settings.aiProvider === "local" ? "Local LLM not configured \u2014 cannot answer." : "No API key configured \u2014 cannot answer.";
       return questions.map((q) => ({
         question: q,
-        answer: "No API key configured \u2014 cannot answer."
+        answer: msg
       }));
     }
     const priorBlock = priorQa.length > 0 ? `## Previous Questions & Answers (context \u2014 refer back instead of repeating)
 ${priorQa.map((qa) => `Q: ${qa.question}
 A: ${qa.answer}`).join("\n")}` : "";
-    const prompt = renderPrompt(PROMPTS.followUp, {
+    const prompt = renderPrompt(this.getPrompt("followUp"), {
       title: capture.title,
       url: capture.url,
       source_type: capture.sourceType,
       prior_qa: priorBlock,
-      content: this.truncate(capture.content, CONTENT_WINDOW_CHARS),
+      content: this.truncate(capture.content, this.chunkWindowChars),
       questions: questions.map((q, i) => `${i + 1}. ${q}`).join("\n"),
-      grounding_rule: GROUNDING_RULE
+      shared_output_rules: this.getContentOutputRules()
     });
     try {
       const response = await this.callAI(prompt, 2e3);
-      const parsed = this.parseJson(response, "merge-unprocessed");
+      const parsed = this.parseJson(response, "follow-up");
       const answers = this.parseKeyAnswers(parsed.answers);
       const byQuestion = new Map(answers.map((a) => [a.question, a]));
       return questions.map((q) => ({
@@ -2561,14 +3944,31 @@ A: ${qa.answer}`).join("\n")}` : "";
       console.log(`[NutEgg] ${fileName} has no unprocessed entries to merge`);
       return null;
     }
-    if (!this.plugin.settings.aiApiKey) {
+    if (!isAIConfigured(this.plugin.settings)) {
       console.log(
-        `[NutEgg] ${fileName} has ${entries} unprocessed entries \u2014 skipped merge (no API key)`
+        `[NutEgg] ${fileName} has ${entries} unprocessed entries \u2014 skipped merge (AI not configured)`
       );
       return null;
     }
-    const prompt = renderPrompt(PROMPTS.mergeUnprocessed, {
+    let fallbackDesc = "";
+    if (!egg.language) {
+      try {
+        const indexContent = await this.plugin.indexReader.getIndexContent();
+        const indexEntries = this.plugin.indexReader.parseIndexContent(indexContent);
+        const indexEntry = indexEntries.find(
+          (e) => e.fileName === fileName || e.fileName.endsWith("/" + fileName)
+        );
+        fallbackDesc = indexEntry?.description || "";
+      } catch {
+      }
+    }
+    const pluginSetting = this.plugin.settings?.contentOutputLanguage;
+    const pluginLang = pluginSetting && pluginSetting !== "same-as-content" ? pluginSetting.trim() : "";
+    const outputLanguage = egg.language || pluginLang || "the same language as this egg's existing knowledge";
+    const prompt = renderPrompt(this.getPrompt("mergeUnprocessed"), {
       egg_file: fileName,
+      output_language: outputLanguage,
+      egg_description: outputLanguage,
       formatting_rules: egg.formattingRules || "(none)",
       knowledge_tree: egg.knowledge || "(empty)",
       unprocessed: egg.unprocessed,
@@ -2576,7 +3976,7 @@ A: ${qa.answer}`).join("\n")}` : "";
     });
     try {
       const response = await this.callAI(prompt, 2e3);
-      const parsed = this.parseJson(response, "suggest-egg");
+      const parsed = this.parseJson(response, "merge-unprocessed");
       const knowledge = typeof parsed.knowledge === "string" ? parsed.knowledge.trim() : "";
       if (!knowledge) {
         console.warn(
@@ -2653,29 +4053,73 @@ ${questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`;
   }
   /**
    * Parse an AI response that should be JSON, stripping markdown fences.
+   * Sanitizes unescaped control characters (\n, \r, \t) in strings and
+   * recovers partial/truncated JSON when responses are cut off mid-stream.
    * `context` names the prompt for diagnostics when parsing fails.
    */
   parseJson(response, context = "response") {
-    let jsonStr = response.trim();
-    if (jsonStr.startsWith("```")) {
+    let jsonStr = (response || "").trim();
+    if (!jsonStr) {
+      console.warn(`[NutEgg] Empty AI response received for (${context}).`);
+      return {};
+    }
+    const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1].trim();
+    } else if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
     }
     try {
       return JSON.parse(jsonStr);
     } catch {
-      const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (braceMatch) {
+    }
+    const sanitized = sanitizeJsonString(jsonStr);
+    try {
+      return JSON.parse(sanitized);
+    } catch {
+    }
+    const braceMatch = sanitized.match(/\{[\s\S]*\}/);
+    if (braceMatch) {
+      try {
+        return JSON.parse(braceMatch[0]);
+      } catch {
+      }
+    }
+    try {
+      const target = braceMatch ? braceMatch[0].trim() : sanitized.trim();
+      if (target.startsWith("{") && target.endsWith("}")) {
+        const obj = Function("return (" + target + ")")();
+        if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+          return obj;
+        }
+      }
+    } catch {
+    }
+    const repaired = repairTruncatedJson(sanitized);
+    if (repaired) {
+      try {
+        const res = JSON.parse(repaired);
+        console.warn(`[NutEgg] Recovered truncated JSON response (${context})`);
+        return res;
+      } catch {
         try {
-          return JSON.parse(braceMatch[0]);
+          const repTrim = repaired.trim();
+          if (repTrim.startsWith("{") && repTrim.endsWith("}")) {
+            const obj = Function("return (" + repTrim + ")")();
+            if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+              console.warn(`[NutEgg] Recovered truncated JSON expression (${context})`);
+              return obj;
+            }
+          }
         } catch {
         }
       }
-      console.warn(
-        `[NutEgg] Failed to parse AI JSON response (${context}):`,
-        jsonStr.slice(0, 300)
-      );
-      return {};
     }
+    console.warn(
+      `[NutEgg] Failed to parse AI JSON response (${context}) [length=${jsonStr.length}]:`,
+      jsonStr.slice(0, 500)
+    );
+    return {};
   }
   truncate(text, maxChars) {
     if (text.length <= maxChars)
@@ -2683,6 +4127,119 @@ ${questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`;
     return text.substring(0, maxChars) + "\n\n[...truncated]";
   }
 };
+function repairTruncatedJson(jsonStr) {
+  const firstBrace = jsonStr.indexOf("{");
+  if (firstBrace === -1)
+    return null;
+  let text = jsonStr.slice(firstBrace).trim();
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (c === "\\") {
+        escaped = true;
+      } else if (c === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+    } else if (c === "{" || c === "[") {
+      stack.push(c);
+    } else if (c === "}") {
+      if (stack[stack.length - 1] === "{")
+        stack.pop();
+    } else if (c === "]") {
+      if (stack[stack.length - 1] === "[")
+        stack.pop();
+    }
+  }
+  if (stack.length === 0 && !inString) {
+    return text;
+  }
+  if (inString) {
+    text += '"';
+  }
+  if (stack[stack.length - 1] === "{") {
+    text = text.replace(/,?\s*"[^"]*"\s*:\s*$/, "");
+    text = text.replace(/(?:\{|,)\s*"[^"]*"\s*$/, (m) => m.startsWith("{") ? "{" : "");
+  }
+  text = text.replace(/,\s*$/, "").trim();
+  const finalStack = [];
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc)
+        esc = false;
+      else if (c === "\\")
+        esc = true;
+      else if (c === '"')
+        inStr = false;
+      continue;
+    }
+    if (c === '"')
+      inStr = true;
+    else if (c === "{" || c === "[")
+      finalStack.push(c);
+    else if (c === "}") {
+      if (finalStack[finalStack.length - 1] === "{")
+        finalStack.pop();
+    } else if (c === "]") {
+      if (finalStack[finalStack.length - 1] === "[")
+        finalStack.pop();
+    }
+  }
+  while (finalStack.length > 0) {
+    const open = finalStack.pop();
+    if (open === "{")
+      text += "}";
+    else if (open === "[")
+      text += "]";
+  }
+  return text;
+}
+function sanitizeJsonString(str) {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        result += c;
+      } else if (c === "\\") {
+        escaped = true;
+        result += c;
+      } else if (c === '"') {
+        inString = false;
+        result += c;
+      } else if (c === "\n") {
+        result += "\\n";
+      } else if (c === "\r") {
+        result += "\\r";
+      } else if (c === "	") {
+        result += "\\t";
+      } else if (c.charCodeAt(0) < 32) {
+        result += "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+      } else {
+        result += c;
+      }
+    } else {
+      if (c === '"')
+        inString = true;
+      result += c;
+    }
+  }
+  return result.replace(/,\s*([}\]])/g, "$1");
+}
 
 // src/knowledge-base.ts
 var KnowledgeBase = class {
@@ -2826,11 +4383,12 @@ var IndexReader = class {
       return [];
     if (index.length === 1)
       return index;
-    if (!this.plugin.settings.aiApiKey) {
+    if (!isAIConfigured(this.plugin.settings)) {
       return [index[0]];
     }
     const indexText = index.map((e) => `- ${e.fileName}: ${e.description}`).join("\n");
-    const prompt = renderPrompt(PROMPTS.eggRouting, {
+    const promptTemplate = this.plugin.workflowManager?.getPrompt("eggRouting") || PROMPTS.eggRouting;
+    const prompt = renderPrompt(promptTemplate, {
       title: content.title,
       url: content.url,
       content: this.truncate(content.content, 8e3),
@@ -2951,402 +4509,6 @@ var IndexReader = class {
 
 // src/main.ts
 init_egg_parser();
-
-// src/templates/index.md
-var templates_default = '# NutEgg Egg Index\n\n> [!abstract]- Instructions:\n> - Add one line per egg file: "* $path: $description_of_what_it_covers"\n> - Process only the lines beginning with *\n\n\n* nutegg/investment.md: investment strategies, market analysis, portfolio management\n* nutegg/society.md: geopolitics, class dynamics, global conflict, political economy\n* nutegg/psychology.md: cognitive biases, mental models, behavioral psychology, decision making\n* nutegg/ai_ml.md: artificial intelligence, machine learning, LLMs, AGI, prompt engineering\n';
-
-// src/templates/egg.md
-var egg_default = `---
-topic: "Unknown"
-status: "active"
-last_updated: "2026-08-14"
----
-
-> [!abstract]- Instructions:
-> **Scope:** Capture high-signal, paradigm-shifting concepts, universally applicable frameworks, and novel data that hold significant strategic value but fall strictly outside established domain-specific routing.
->
-> **Action Guide:**
-> 1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.
-> 2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.
-> 3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.
-> 4. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
-> 5. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
->
-> **Key Questions:**
-> 1. what new insights does this add?
-> 2. Identify any conflicts between this new data and the existing knowledge base.
->
-> **Rejection Criteria:**
-> - Ignore content that repeats existing knowledge
->
-> **Formatting Rules:** 
-> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
->   * [concept] \u2014 a definition or explanation of what something IS (e.g. a technique, algorithm, or paradigm)
->   * [architecture] \u2014 a model architecture, system design, or structural approach
->   * [method] \u2014 a how-to, workflow, training recipe, or step-by-step process
->   * [benchmark] \u2014 a measurable result, performance comparison, or empirical finding
->   * [explain] \u2014 reasoning or rationale behind a design choice or conclusion (the "why")
->   * [fact] \u2014 a verifiable data point, statistic, or empirical finding
->   * [example] \u2014 a concrete demo, paper, deployment, or case study that illustrates an idea
-> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as a indented sub-bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). Author and source are appended automatically.
-> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
-> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
-> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
-
-
-# Knowledge
-
-
-# Unprocessed
-`;
-
-// src/templates/examples/investment.md
-var investment_default = `---
-topic: "Investment Strategy & Market Analysis"
-status: "active"
-last_updated: "2026-08-12"
----
-
-> [!abstract]- Instructions:
-> **Scope:** This file captures high-signal financial data, macro-economic shifts, asset allocation strategies, and deep fundamental analyses of target equities or protocols.
->
-> **Action Guide:**
-> 1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.
-> 2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.
-> 3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.
-> 4. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
-> 5. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
->
-> **Key Questions:**
-> 1. Does this detail a structural shift in macro-economic policy (e.g., interest rates, inflation metrics, geopolitical supply chain impacts)?
-> 2. Is there a new, data-backed fundamental analysis or earnings breakdown for a company on my watchlist?
-> 3. Does this introduce a quantifiable framework for risk management or portfolio rebalancing?
-> 
-> **Rejection Criteria:**
-> - Reject purely speculative price predictions or "day-trading" setups.
-> - Reject emotionally driven market commentary, panic narratives, or FOMO-inducing content.
-> - Reject basic financial definitions (e.g., "What is an ETF?").
-> 
-> **Formatting Rules:** 
-> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
->   * [concept] \u2014 a definition or explanation of what something IS (e.g. a financial instrument, market mechanism)
->   * [signal] \u2014 a macro-economic shift, market signal, or structural trend worth monitoring
->   * [framework] \u2014 a quantifiable model, strategy, or analytical approach for portfolio/risk decisions
->   * [method] \u2014 a how-to, workflow, or step-by-step process for investing or analysis
->   * [opinion] \u2014 a subjective market thesis, recommendation, or viewpoint from the author
->   * [fact] \u2014 a verifiable data point, earnings figure, statistic, or historical event
->   * [example] \u2014 a concrete case study, trade, or real-world market event that illustrates an idea
-> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For investments, examples are specific data points, numbers, earnings figures, or market events. Author and source are appended automatically.
-> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
-> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
-> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
-
-# Knowledge
-
-
-# Unprocessed
-
-`;
-
-// src/templates/examples/psychology.md
-var psychology_default = `---
-topic: "Psychology & Mental Models"
-status: "active"
-last_updated: "2026-08-14"
----
-
-> [!abstract]- Instructions:
-> **Scope:** Capture actionable cognitive biases, behavioral mechanics, and mental models that explain human decision-making and cognitive processes.
->
-> **Action Guide:**
-> 1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.
-> 2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.
-> 3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.
-> 4. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
-> 5. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
->
-> **Key Questions:**
-> 1. What specific cognitive bias, mental model, or psychological insight does this reveal?
->
-> **Rejection Criteria:**
-> - Reject generic self-help advice or motivational platitudes.
-> - Reject concepts that lack specific psychological mechanisms or scientific grounding.
->
-> **Formatting Rules:** 
-> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
->   * [bias] \u2014 a named cognitive bias or systematic error in human judgment
->   * [model] \u2014 a mental model, decision-making framework, or heuristic
->   * [mechanism] \u2014 an underlying psychological process or behavioral mechanic (the "how" of cognition)
->   * [explain] \u2014 reasoning or rationale behind why a bias or behavior occurs
->   * [fact] \u2014 a verifiable research finding, study result, or statistical data
->   * [example] \u2014 a concrete experiment, study, or real-world observation that illustrates a concept
-> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For psychology, examples are experiments, studies, or real-world observations. Author and source are appended automatically.
-> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
-> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
-> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
-
-# Knowledge
-
-
-# Unprocessed
-
-`;
-
-// src/templates/examples/society.md
-var society_default = `---
-topic: "Geopolitics, Society & Economics"
-status: "active"
-last_updated: "2026-08-14"
----
-
-> [!abstract]- Instructions:
-> **Scope:** Capture new knowledge and insights.
-> 
-> **Action Guide:**
-> 1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.
-> 2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.
-> 3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.
-> 4. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
-> 5. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
->
-> **Key Questions:**
-> 1. What geopolitical, social, or economic dynamic does this reveal?
->
-> **Rejection Criteria:**
-> - Reject superficial news recaps and transient event reporting lacking structural analysis.
-> - Reject partisan commentary, emotional narratives, or short-term noise that fails to indicate a broader systemic shift.
->
-> **Formatting Rules:** 
-> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
->   * [concept] \u2014 a definition or explanation of what something IS (e.g. an economic mechanism, social dynamic)
->   * [trend] \u2014 a structural shift, long-term pattern, or systemic change in geopolitics/society/economy
->   * [policy] \u2014 a government action, regulation, or institutional decision with strategic implications
->   * [explain] \u2014 reasoning or rationale behind why a geopolitical or social dynamic occurs
->   * [opinion] \u2014 a subjective analysis, prediction, or commentary from the author
->   * [fact] \u2014 a verifiable data point, statistic, historical event, or demographic figure
->   * [example] \u2014 a concrete event, country case, or policy outcome that illustrates a concept
-> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For geopolitics/society, examples are specific events, policies, or country cases. Author and source are appended automatically.
-> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
-> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
-> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
-
-# Knowledge
-
-
-# Unprocessed
-
-`;
-
-// src/templates/examples/ai_ml.md
-var ai_ml_default = `---
-topic: "Artificial Intelligence & Machine Learning"
-status: "active"
-last_updated: "2026-08-14"
----
-
-> [!abstract]- Instructions:
-> **Scope:** Capture novel techniques, capabilities, and implications in AI/ML, model architectures, and hardware-level machine learning frameworks (e.g., Tinygrad, MLX).
->
-> **Action Guide:**
-> 1. Title Verdict: Provide a single, direct sentence that resolves the core question posed in the title or introduction.
-> 2. Core Summary: Summarize the main concepts in plain language using a maximum of 3 bullet points.
-> 3. Chapter Map (Long-form only): If the content is a long article or lengthy video, provide a brief 1-sentence summary for each major section or topic shift. If it is short, omit this step entirely.
-> 4. Novel Delta: Extract only genuinely new, substantive insights or ideas not already captured in the existing knowledge files. State "None" if the content is entirely redundant.
-> 5. Decide: should the user spend time reading this fully? Consider the egg's reject criteria if any are specified. If the content is repetitive, basic, or doesn't add new insight, answer false.
->
-> **Key Questions:**
-> 1. What new AI/ML technique, capability, or architectural implication does this describe?
-> 2. What new application or workflow does this describe?
->
-> **Rejection Criteria:**
-> - Reject marketing hype and product announcements lacking technical depth.
-> - Reject benchmark scores without structural or architectural insights.
-> - Reject repeated, derivative, or mainstream AI news.
->
-> **Formatting Rules:** 
-> - Each bullet MUST begin with exactly one entry tag. Format: "- [tag] The insight text\u2026". Pick the single best fit:
->   * [concept] \u2014 a definition or explanation of what something IS (e.g. a technique, algorithm, or paradigm)
->   * [architecture] \u2014 a model architecture, system design, or structural approach
->   * [method] \u2014 a how-to, workflow, training recipe, or step-by-step process
->   * [benchmark] \u2014 a measurable result, performance comparison, or empirical finding
->   * [explain] \u2014 reasoning or rationale behind a design choice or conclusion (the "why")
->   * [fact] \u2014 a verifiable data point, statistic, or empirical finding
->   * [example] \u2014 a concrete demo, paper, deployment, or case study that illustrates an idea
-> - Each new entry follows a concept \u2192 explanation \u2192 example structure: one top-level bullet "- [tag] **Concept Name**" \u2014 Concept Name is a short 2\u20135 word name that uniquely identifies the insight (dedup and novelty checks compare concepts: the same insight under different wording is ONE concept). Explanation is added as an indented bullet. Concrete examples from the content (if any) follow as indented sub-bullets ("  - \u{1F3AF} Example: ..."). For AI/ML, examples are papers, benchmarks, model/code demos, or real-world deployments. Author and source are appended automatically.
-> - Structured content: when the source itself is a well-organized enumeration (a numbered list, a named framework like "Seven Principles of X", a step-by-step process), capture it as ONE complete entry \u2014 the list's title as the Concept and EVERY item as an indented sub-bullet, in the source's own order. A partial list is worse than no entry.
-> - New entries are added to the "# Unprocessed" section first and can be merged into the knowledge tree on demand.
-> - When merging: respect the existing knowledge tree. Locate the most relevant parent concept in the document and append the new information beneath it as nested sub-bullets. Do not break the existing hierarchy.
-
-# Knowledge
-
-
-# Unprocessed
-
-`;
-
-// src/defaults.ts
-var INDEX_TEMPLATE = templates_default;
-var EGG_TEMPLATE = egg_default;
-var EXAMPLE_EGGS = [
-  { path: "nutegg/investment.md", content: investment_default },
-  { path: "nutegg/psychology.md", content: psychology_default },
-  { path: "nutegg/society.md", content: society_default },
-  { path: "nutegg/ai_ml.md", content: ai_ml_default }
-];
-
-// src/index-sync.ts
-var IndexSync = class {
-  plugin;
-  constructor(plugin) {
-    this.plugin = plugin;
-  }
-  async checkAndFix() {
-    const result = {
-      addedIndexEntries: [],
-      fixedIndexPaths: [],
-      createdEggs: []
-    };
-    const eggFiles = this.plugin.app.vault.getMarkdownFiles().filter(
-      (f) => f.path.startsWith("nutegg/") && !f.path.startsWith(this.plugin.settings.rawFolder) && !f.path.endsWith("/_index.md")
-    ).map((f) => f.path);
-    const indexContent = await this.plugin.indexReader.getIndexContent();
-    if (indexContent === "(No _index.md found)") {
-      return result;
-    }
-    const entries = this.plugin.indexReader.parseIndexContent(indexContent);
-    const norm = (p) => p.startsWith("nutegg/") ? p : `nutegg/${p.replace(/^\/+/, "")}`;
-    const byPath = new Map(entries.map((e) => [norm(e.fileName), e]));
-    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
-      this.plugin.settings.indexFile
-    );
-    for (const eggPath of eggFiles) {
-      const entry = byPath.get(eggPath);
-      if (!entry) {
-        const description = await this.describeEgg(eggPath);
-        await this.appendIndexEntry(indexFile, eggPath, description);
-        result.addedIndexEntries.push(eggPath);
-      } else if (entry.fileName !== eggPath) {
-        await this.rewriteIndexPath(indexFile, entry.fileName, eggPath);
-        result.fixedIndexPaths.push(eggPath);
-      }
-    }
-    const present = new Set(eggFiles);
-    for (const entry of entries) {
-      const target = norm(entry.fileName);
-      if (present.has(target))
-        continue;
-      if (await this.plugin.app.vault.adapter.exists(entry.fileName))
-        continue;
-      await this.createEggFromTemplate(target, entry);
-      if (target !== entry.fileName) {
-        await this.rewriteIndexPath(indexFile, entry.fileName, target);
-        result.fixedIndexPaths.push(target);
-      }
-      result.createdEggs.push(target);
-    }
-    if (result.addedIndexEntries.length || result.fixedIndexPaths.length || result.createdEggs.length) {
-      console.log(
-        `[NutEgg] Index sync: +${result.addedIndexEntries.length} index entries, ~${result.fixedIndexPaths.length} paths fixed, +${result.createdEggs.length} egg files created`
-      );
-    }
-    return result;
-  }
-  /**
-   * Create a new egg file from a name + description (the popup's "no egg
-   * matched — create one?" flow). Seeds the template's topic/scope from the
-   * description and appends the matching _index.md entry. `alreadyExists`
-   * when the file was already there (nothing is overwritten).
-   */
-  async createEgg(name, description) {
-    const fileName = `nutegg/${name}.md`;
-    if (await this.plugin.app.vault.adapter.exists(fileName)) {
-      return { path: fileName, alreadyExists: true };
-    }
-    await this.createEggFromTemplate(fileName, { fileName, description });
-    const indexFile = this.plugin.app.vault.getAbstractFileByPath(
-      this.plugin.settings.indexFile
-    );
-    await this.appendIndexEntry(indexFile, fileName, description || name);
-    return { path: fileName, alreadyExists: false };
-  }
-  /** Description for a new index entry — the egg's frontmatter topic, or "". */
-  async describeEgg(eggPath) {
-    try {
-      const egg = await this.plugin.eggParser.readEgg(eggPath);
-      return egg?.topic && egg.topic !== "Unknown" ? egg.topic : "";
-    } catch {
-      return "";
-    }
-  }
-  async appendIndexEntry(indexFile, eggPath, description) {
-    if (!indexFile)
-      return;
-    const line = `* ${eggPath}${description ? `: ${description}` : ""}`;
-    const content = await this.plugin.app.vault.read(indexFile);
-    await this.plugin.app.vault.modify(
-      indexFile,
-      content.replace(/\n+$/, "") + `
-${line}
-`
-    );
-    console.log(`[NutEgg] Added index entry: ${line}`);
-  }
-  /** Rewrite one index entry's file path in place (keeps its description). */
-  async rewriteIndexPath(indexFile, oldPath, newPath) {
-    if (!indexFile)
-      return;
-    const content = await this.plugin.app.vault.read(indexFile);
-    const escaped = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(`^(\\s*[*\\-+]?\\s*)${escaped}(\\s*:)`, "m");
-    if (!re.test(content))
-      return;
-    const updated = content.replace(re, `$1${newPath}$2`);
-    if (updated === content)
-      return;
-    await this.plugin.app.vault.modify(indexFile, updated);
-    console.log(`[NutEgg] Index path fixed: ${oldPath} -> ${newPath}`);
-  }
-  /**
-   * Create the missing egg file from the template, seeded from the index
-   * entry's description (topic + scope).
-   */
-  async createEggFromTemplate(targetPath, entry) {
-    await this.ensureParentFolders(targetPath);
-    const fallbackTopic = targetPath.replace(/^nutegg\//, "").replace(/\.md$/, "");
-    const topic = (entry.description || fallbackTopic).trim();
-    let content = EGG_TEMPLATE;
-    content = content.replace(
-      /^topic: .*$/m,
-      `topic: "${this.escapeYaml(topic)}"`
-    );
-    if (entry.description) {
-      content = content.replace(
-        /^> \*\*Scope:\*\* .*$/m,
-        `> **Scope:** ${entry.description}`
-      );
-    }
-    content = content.replace(
-      /^last_updated: .*$/m,
-      `last_updated: "${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}"`
-    );
-    await this.plugin.app.vault.create(targetPath, content);
-    console.log(`[NutEgg] Created egg from index entry: ${targetPath}`);
-  }
-  async ensureParentFolders(path) {
-    const parts = path.split("/").slice(0, -1);
-    let currentPath = "";
-    for (const part of parts) {
-      currentPath += (currentPath ? "/" : "") + part;
-      const exists = await this.plugin.app.vault.adapter.exists(currentPath);
-      if (!exists) {
-        await this.plugin.app.vault.createFolder(currentPath);
-      }
-    }
-  }
-  escapeYaml(value) {
-    return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  }
-};
 
 // src/db.ts
 function loadSqliteModule() {
@@ -3632,7 +4794,7 @@ function makeSnippet(text, terms) {
 }
 
 // src/merge-widget.ts
-var import_obsidian2 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var import_view = require("@codemirror/view");
 function findInstructionTargetLine(docText) {
   const lines = docText.split("\n");
@@ -3703,7 +4865,7 @@ function appendCreditPill(plugin, targetBadge) {
       creditPill.title = `NutEgg AI: ${credit.statusText}`;
       targetBadge.appendChild(creditPill);
     } else if (credit.providerLabel) {
-      const label = plugin.settings.aiSource === "openrouter" ? "OpenRouter" : credit.providerLabel;
+      const label = plugin.settings.aiProvider === "openrouter" ? "OpenRouter" : credit.providerLabel;
       creditPill.textContent = `\u2022 \u{1FA99} ${label}`;
       creditPill.title = `NutEgg AI: ${credit.statusText}`;
       targetBadge.appendChild(creditPill);
@@ -3780,20 +4942,20 @@ function registerMergeWidget(plugin) {
         try {
           const result = await runMerge(plugin, ctx.sourcePath, null);
           if (result && result.entries > 0) {
-            new import_obsidian2.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
+            new import_obsidian3.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
             button.textContent = "\u2705 Merged!";
             badge.textContent = "\u2705 Knowledge tree is up to date";
             setTimeout(() => {
               button.remove();
             }, 2e3);
           } else {
-            new import_obsidian2.Notice("[NutEgg] Merge returned no changes or failed. Check console.");
+            new import_obsidian3.Notice("[NutEgg] Merge returned no changes or failed. Check console.");
             button.disabled = false;
             button.textContent = originalText;
           }
         } catch (err) {
           console.error("[NutEgg] Merge button click failed:", err);
-          new import_obsidian2.Notice(`[NutEgg] Merge failed: ${err instanceof Error ? err.message : String(err)}`);
+          new import_obsidian3.Notice(`[NutEgg] Merge failed: ${err instanceof Error ? err.message : String(err)}`);
           button.disabled = false;
           button.textContent = originalText;
         }
@@ -3838,15 +5000,15 @@ var MergeButtonWidget = class extends import_view.WidgetType {
             this.view.state.doc.toString()
           );
           if (result && result.entries > 0) {
-            new import_obsidian2.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
+            new import_obsidian3.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
           } else {
-            new import_obsidian2.Notice("[NutEgg] Merge returned no changes or failed. Check console.");
+            new import_obsidian3.Notice("[NutEgg] Merge returned no changes or failed. Check console.");
             button.disabled = false;
             button.textContent = originalText;
           }
         } catch (err) {
           console.error("[NutEgg] Editor merge failed:", err);
-          new import_obsidian2.Notice(`[NutEgg] Merge failed: ${err instanceof Error ? err.message : String(err)}`);
+          new import_obsidian3.Notice(`[NutEgg] Merge failed: ${err instanceof Error ? err.message : String(err)}`);
           button.disabled = false;
           button.textContent = originalText;
         }
@@ -3927,8 +5089,602 @@ function registerMergeEditorExtension(plugin) {
   plugin.registerEditorExtension(mergeEditorExtension(plugin));
 }
 
+// src/index-widget.ts
+var import_obsidian4 = require("obsidian");
+var import_view2 = require("@codemirror/view");
+var CreateEggModal = class extends import_obsidian4.Modal {
+  plugin;
+  defaultName;
+  defaultDescription;
+  constructor(app, plugin, defaultName = "", defaultDescription = "") {
+    super(app);
+    this.plugin = plugin;
+    this.defaultName = defaultName;
+    this.defaultDescription = defaultDescription;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nutegg-create-egg-modal");
+    contentEl.createEl("h2", { text: "\u{1F423} Create New Egg" });
+    const nameGroup = contentEl.createEl("div", {
+      cls: "nutegg-modal-field-group"
+    });
+    nameGroup.style.marginBottom = "14px";
+    nameGroup.createEl("label", {
+      text: "Egg Name (file name):",
+      cls: "nutegg-modal-label"
+    }).style.cssText = "display: block; font-weight: 600; margin-bottom: 4px;";
+    const nameInput = nameGroup.createEl("input", {
+      type: "text",
+      value: this.defaultName,
+      placeholder: "e.g. methodology, invest_strategy, \u65B9\u6CD5\u8BBA..."
+    });
+    nameInput.style.cssText = "width: 100%; box-sizing: border-box; padding: 6px 10px;";
+    const descGroup = contentEl.createEl("div", {
+      cls: "nutegg-modal-field-group"
+    });
+    descGroup.style.marginBottom = "10px";
+    descGroup.createEl("label", {
+      text: "Description (scope of what it covers):",
+      cls: "nutegg-modal-label"
+    }).style.cssText = "display: block; font-weight: 600; margin-bottom: 4px;";
+    const descInput = descGroup.createEl("textarea", {
+      placeholder: "e.g. \u4ECB\u7ECD\u505A\u4E8B\u7684\u5177\u4F53\u65B9\u6CD5 / practical methods and tactics..."
+    });
+    descInput.value = this.defaultDescription;
+    descInput.rows = 3;
+    descInput.style.cssText = "width: 100%; box-sizing: border-box; padding: 6px 10px; resize: vertical;";
+    const hint = contentEl.createEl("p", {
+      cls: "nutegg-modal-hint",
+      text: "\u{1F310} Language of instructions and knowledge output will match the description language."
+    });
+    hint.style.cssText = "font-size: 0.85em; opacity: 0.75; margin: 4px 0 10px 0;";
+    const btnRow = contentEl.createEl("div", {
+      cls: "nutegg-modal-buttons"
+    });
+    btnRow.style.cssText = "display: flex; justify-content: flex-end; gap: 8px;";
+    const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const submitBtn = btnRow.createEl("button", {
+      cls: "mod-cta",
+      text: "Create Egg"
+    });
+    const submit = async () => {
+      const safeName = sanitizeEggName(nameInput.value);
+      const description = descInput.value.trim();
+      if (!safeName) {
+        new import_obsidian4.Notice("NutEgg: Please enter a valid egg name.");
+        nameInput.focus();
+        return;
+      }
+      submitBtn.disabled = true;
+      cancelBtn.disabled = true;
+      const originalText = submitBtn.textContent;
+      submitBtn.textContent = "\u23F3 Creating egg...";
+      try {
+        const result = await this.plugin.indexSync.createEgg(
+          safeName,
+          description
+        );
+        this.close();
+        const detected = result.language;
+        const currentSetting = this.plugin.settings.contentOutputLanguage || "same-as-content";
+        const isDifferent = detected && detected.toLowerCase() !== currentSetting.toLowerCase() && !(currentSetting === "same-as-content" && detected.toLowerCase() === "english");
+        if (isDifferent) {
+          const notice = new import_obsidian4.Notice("", 8e3);
+          const frag = notice.noticeEl.createDiv();
+          frag.createSpan({
+            text: `NutEgg: Created ${result.path} (${detected}). `
+          });
+          const switchBtn = frag.createEl("button", {
+            text: `Set Content Language to ${detected}`
+          });
+          switchBtn.style.cssText = "margin-left: 6px; padding: 2px 6px; font-size: 0.85em;";
+          switchBtn.addEventListener("click", async () => {
+            this.plugin.settings.contentOutputLanguage = detected;
+            await this.plugin.saveSettings();
+            notice.hide();
+            new import_obsidian4.Notice(
+              `NutEgg: Content analysis output language set to ${detected}`
+            );
+          });
+        } else if (result.alreadyExists) {
+          new import_obsidian4.Notice(`NutEgg: ${result.path} already exists.`);
+        } else {
+          new import_obsidian4.Notice(`NutEgg: Created ${result.path}`);
+        }
+        const file = this.app.vault.getAbstractFileByPath(result.path);
+        if (file) {
+          const leaf = this.app.workspace.getLeaf(false);
+          await leaf.openFile(file);
+        }
+      } catch (err) {
+        console.error("[NutEgg] Failed to create egg from modal:", err);
+        new import_obsidian4.Notice(
+          `NutEgg: Failed to create egg: ${err instanceof Error ? err.message : String(err)}`
+        );
+        submitBtn.disabled = false;
+        cancelBtn.disabled = false;
+        submitBtn.textContent = originalText;
+      }
+    };
+    submitBtn.addEventListener("click", submit);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        descInput.focus();
+      }
+    });
+    setTimeout(() => nameInput.focus(), 50);
+  }
+};
+function renderSyncButton(plugin, container) {
+  const btn = container.createEl("button", {
+    cls: "nutegg-sync-btn",
+    text: "Checking..."
+  });
+  btn.style.cssText = "display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; padding: 4px 10px; cursor: pointer;";
+  const update = async () => {
+    try {
+      const status = await plugin.indexSync.getDiffStatus();
+      if (status.totalDiffs === 0) {
+        btn.textContent = "\u2713 In Sync";
+        btn.className = "nutegg-sync-btn mod-muted";
+        btn.title = "Everything is in sync. Click to re-check.";
+      } else {
+        const details = [];
+        if (status.missingEggs.length) {
+          details.push(`${status.missingEggs.length} missing egg file(s)`);
+        }
+        if (status.unindexedEggs.length) {
+          details.push(`${status.unindexedEggs.length} unindexed egg note(s)`);
+        }
+        if (status.invalidEntries.length) {
+          details.push(`${status.invalidEntries.length} invalid entry(ies)`);
+        }
+        btn.textContent = `\u{1F504} Sync (${status.totalDiffs} diff${status.totalDiffs > 1 ? "s" : ""})`;
+        btn.className = "nutegg-sync-btn mod-warning";
+        btn.title = `${details.join(", ")}. Click to sync.`;
+      }
+    } catch (err) {
+      console.warn("[NutEgg] Failed to get index diff status:", err);
+    }
+  };
+  btn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const originalText = btn.textContent;
+    btn.textContent = "Syncing...";
+    btn.disabled = true;
+    try {
+      const res = await plugin.indexSync.sync();
+      const parts = [];
+      if (res.createdEggs.length) {
+        parts.push(`+${res.createdEggs.length} egg(s) created`);
+      }
+      if (res.addedIndexEntries.length) {
+        parts.push(`+${res.addedIndexEntries.length} entry(ies) added`);
+      }
+      if (res.prunedIndexEntries.length) {
+        parts.push(`-${res.prunedIndexEntries.length} invalid pruned`);
+      }
+      if (res.fixedIndexPaths.length) {
+        parts.push(`${res.fixedIndexPaths.length} path(s) normalized`);
+      }
+      if (parts.length > 0) {
+        new import_obsidian4.Notice(`[NutEgg] Index synced: ${parts.join(", ")}`);
+      } else {
+        new import_obsidian4.Notice("[NutEgg] Everything is in sync.");
+      }
+      await update();
+    } catch (err) {
+      new import_obsidian4.Notice(`[NutEgg] Sync failed: ${err instanceof Error ? err.message : String(err)}`);
+      btn.textContent = originalText;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  plugin.indexSync.onDiffChanged(() => {
+    update();
+  });
+  update();
+  return btn;
+}
+function registerIndexWidget(plugin) {
+  plugin.registerMarkdownPostProcessor(
+    async (el, ctx) => {
+      if (!ctx.sourcePath || !ctx.sourcePath.endsWith("_index.md") && ctx.sourcePath !== plugin.settings.indexFile) {
+        return;
+      }
+      if (el.querySelector(".nutegg-index-action-bar"))
+        return;
+      const targetElement = el.querySelector(".callout") || el.querySelector("h1, h2") || el.firstElementChild;
+      if (!targetElement)
+        return;
+      const bar = document.createElement("div");
+      bar.className = "nutegg-index-action-bar";
+      bar.style.cssText = "margin: 12px 0 16px 0; display: flex; align-items: center; gap: 8px;";
+      const btn = document.createElement("button");
+      btn.className = "nutegg-new-egg-btn mod-cta";
+      btn.textContent = "\u{1F423} + New Egg";
+      btn.title = "Create a new egg file and add to index";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        new CreateEggModal(plugin.app, plugin).open();
+      });
+      bar.appendChild(btn);
+      renderSyncButton(plugin, bar);
+      targetElement.insertAdjacentElement("afterend", bar);
+    }
+  );
+}
+var IndexActionBarWidget = class extends import_view2.WidgetType {
+  constructor(plugin) {
+    super();
+    this.plugin = plugin;
+  }
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "nutegg-index-action-bar nutegg-index-editor-widget";
+    wrap.style.cssText = "margin: 10px 0 14px 0; display: flex; align-items: center; gap: 8px; width: 100%;";
+    const btn = document.createElement("button");
+    btn.className = "nutegg-new-egg-btn mod-cta";
+    btn.textContent = "\u{1F423} + New Egg";
+    btn.title = "Create a new egg file and add to index";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      new CreateEggModal(this.plugin.app, this.plugin).open();
+    });
+    wrap.appendChild(btn);
+    renderSyncButton(this.plugin, wrap);
+    return wrap;
+  }
+};
+var IndexActionBarEditorPlugin = class {
+  constructor(plugin, view) {
+    this.plugin = plugin;
+    this.view = view;
+    this.decorations = this.build();
+  }
+  decorations;
+  update(update) {
+    if (update.docChanged || update.viewportChanged) {
+      this.decorations = this.build();
+    }
+  }
+  isIndexFile() {
+    let filePath = "";
+    for (const leaf of this.plugin.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view?.editor?.cm === this.view) {
+        filePath = leaf.view.file?.path || "";
+        break;
+      }
+    }
+    if (!filePath) {
+      filePath = this.plugin.app.workspace.getActiveFile()?.path || "";
+    }
+    return filePath.endsWith("_index.md") || filePath === this.plugin.settings.indexFile;
+  }
+  build() {
+    if (!this.isIndexFile()) {
+      return import_view2.Decoration.none;
+    }
+    const doc = this.view.state.doc;
+    const docText = doc.toString();
+    const lines = docText.split("\n");
+    let targetLineNo = 1;
+    let inCallout = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line2 = lines[i].trim();
+      if (line2.startsWith(">")) {
+        inCallout = true;
+        targetLineNo = i + 1;
+      } else if (inCallout) {
+        break;
+      } else if (line2.startsWith("#")) {
+        targetLineNo = i + 1;
+      }
+    }
+    const line = doc.line(Math.min(targetLineNo, doc.lines));
+    return import_view2.Decoration.set([
+      import_view2.Decoration.widget({
+        widget: new IndexActionBarWidget(this.plugin),
+        side: 1
+      }).range(line.to)
+    ]);
+  }
+};
+function registerIndexEditorExtension(plugin) {
+  plugin.registerEditorExtension(
+    import_view2.ViewPlugin.fromClass(
+      class extends IndexActionBarEditorPlugin {
+        constructor(view) {
+          super(plugin, view);
+        }
+      },
+      {
+        decorations: (v) => v.decorations
+      }
+    )
+  );
+}
+
+// src/workflow-manager.ts
+var import_obsidian5 = require("obsidian");
+
+// src/workflow/README.md
+var README_default = '# NutEgg AI Workflow & Prompt Reference\n\nWelcome to the **NutEgg Workflow Engine**. The files in this folder define the prompts, instructions, and schemas that power NutEgg\'s AI extraction and knowledge synthesis pipeline.\n\n- \u{1F310} **Chrome Extension:** [NutEgg on Chrome Web Store](https://chromewebstore.google.com/detail/nutegg/bmdmdiicembobejibggoeiahaonphcol)\n- \u{1F48E} **Obsidian Plugin:** [NutEgg on Obsidian Community Plugins](https://community.obsidian.md/plugins/nutegg)\n\n> [!TIP]\n> You can freely edit and customize any file in this directory to tailor NutEgg\'s analysis to your specific needs (e.g. changing the tone, adding domain-specific perspectives, or adjusting extraction depth).\n\n---\n\n## Architecture Overview\n\nNutEgg uses a **Two-Stage Analysis Architecture** designed for high precision, token efficiency, and user control. Rather than running a monolithic prompt, NutEgg separates broad content understanding from deep, egg-specific knowledge comparison.\n\n```\n                    \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n                    \u2502      Captured Web Content     \u2502\n                    \u2502   (Article / YouTube / Tweet) \u2502\n                    \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                                    \u2502\n                                    \u25BC\n       ===========================================================\n       STAGE 1: Content Analysis & Summary-Based Egg Routing\n       ===========================================================\n                                    \u2502\n                         Is content >30k chars?\n                            \u251C\u2500\u2500 No  \u2500\u2500\u25BA [content-analysis.md]\n                            \u2514\u2500\u2500 Yes \u2500\u2500\u25BA Chunks + [aggregate-content.md]\n                                    \u2502\n                                    \u25BC\n                   Produces: Title Verdict, 3-Bullet Summary,\n                   Chapter Map, & Custom Question Answers\n                                    \u2502\n                                    \u25BC\n                           [egg-routing.md]\n           (Routes matched eggs from _index.md using the\n            concise Stage 1 summary instead of raw content)\n                                    \u2502\n                                    \u25BC\n       ===========================================================\n       INTERACTIVE CHOICE / EXECUTION MODE (Chrome Extension)\n       ===========================================================\n                                    \u2502\n                        Which mode is selected?\n                            \u2502\n            \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n            \u25BC                               \u25BC\n       [Fast Mode]                 [Confirm Eggs Mode]\n       Automatically proceeds      User reviews matched eggs:\n       to Stage 2 with all         \u251C\u2500\u2500 "Collect Nut Only" (skip Stage 2)\n       matched eggs.               \u2514\u2500\u2500 Add/remove eggs \u2500\u2500\u25BA Proceed\n            \u2502                               \u2502\n            \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                            \u25BC\n       ===========================================================\n       STAGE 2: Per-Egg Knowledge Extraction & Novelty Comparison\n       ===========================================================\n                            \u2502\n               For each confirmed egg (1 or N):\n                            \u2502\n                            \u25BC\n                    [egg-analysis.md]\n              (Extract candidate knowledge entries\n               & key questions scoped to this egg)\n                            \u2502\n                            \u25BC\n                    [egg-compare.md]\n              (Diffs candidate entries against the\n               egg\'s existing # Knowledge tree to find\n               true novel insights & decide read verdict)\n                            \u2502\n                            \u25BC\n                 Results returned to Popup\n                 (Ready to Save Nut & Eggs)\n```\n\n> [!NOTE]\n> **Why Summary-Based Routing?**\n> Passing the Stage 1 summary to `egg-routing.md` instead of full raw articles or multi-hour video transcripts saves tens of thousands of tokens per capture and dramatically improves routing accuracy by focusing on distilled, high-signal semantic themes.\n\n---\n\n### Execution Modes\n\n| Mode | Behavior | Best Used For |\n|---|---|---|\n| **Fast Mode** | Runs Stage 1 content analysis, routes eggs automatically, and immediately executes Stage 2 knowledge comparison in one uninterrupted pass. | Everyday reading and quick captures when you trust automatic egg matching. |\n| **Confirm Eggs Mode** | Runs Stage 1 content analysis, then pauses in the popup. Shows matched eggs alongside your vault\'s full egg list. You can add/remove eggs, proceed with knowledge comparison, or click **Collect Nut Only** to save the note immediately without comparing against eggs. | Deep research, ambiguous topics, or when you only want a quick summary without updating egg knowledge trees. |\n\n---\n\n### Long Content (>30k Chars) Pipeline\n\nFor long articles, papers, or video transcripts (>30k characters), content is automatically split into timestamped or paragraph chunks (<=30k chars each) and aggregated in both stages:\n\n```\n  Captured Long Content \u2500\u2500\u25BA Split into Chunks (Part 1, Part 2, ... Part N)\n                                \u2502\n       \u250C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n       \u25BC                                                 \u25BC\n  Stage 1: Content Summary                          Stage 2: Per-Egg Knowledge\n  Run [content-analysis.md]                         For each confirmed egg:\n  for each chunk                                    Run [egg-analysis.md] + [egg-compare.md]\n       \u2502                                            for each chunk\n       \u25BC                                                 \u2502\n  [aggregate-content.md]                                 \u25BC\n  Merges chunk summaries into ONE                   [aggregate-egg.md]\n  cohesive title verdict, 3-bullet                  Synthesizes cross-part findings\n  core summary, and custom Q&A.                     into unified novel delta, answers\n       \u2502                                            key questions, & read verdict.\n       \u25BC                                                 \u2502\n  [egg-routing.md]                                       \u2502\n  (Routes eggs via aggregated summary)                   \u2502\n       \u2502                                                 \u2502\n       \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252C\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                                \u2502\n                                \u25BC\n                    Results returned to Popup\n```\n\n---\n\n### Other Workflows (Independent of Capture)\n\n```\n  User asks follow-up questions in Chrome popup\n     \u2514\u2500\u2500\u25BA [follow-up.md] (interactive Q&A, 1 AI call per batch)\n\n  Unprocessed entries accumulate in an egg note (20+ threshold or manual button)\n     \u2514\u2500\u2500\u25BA [merge-unprocessed.md] (merge into # Knowledge tree, 1 AI call)\n\n  User creates a new egg with a non-English description\n     \u2514\u2500\u2500\u25BA [localize-egg.md] (translate egg template, 1 AI call)\n```\n\n---\n\n## Prompt Dependency & Injection Map\n\nSome prompt files are **shared fragments** that are not executed independently, but are injected into other prompts via `{{placeholder}}` variables at runtime:\n\n```mermaid\nflowchart TD\n    subgraph Shared ["1. Shared Fragments (Injected via Placeholders)"]\n        direction TB\n        SOR["shared-output-rules.md<br/><i>(Grounding directive & output language)</i>"]\n        CTD["content-task-default.md<br/><i>(Default content analysis tasks)</i>"]\n    end\n\n    subgraph Capture ["2. Content Capture & Synthesis Pipeline"]\n        direction TB\n        CA["content-analysis.md<br/><i>(Stage 1: Content summary & Q&A)</i>"]\n        ROUT["egg-routing.md<br/><i>(Stage 1: Summary-based egg routing)</i>"]\n        EA["egg-analysis.md<br/><i>(Stage 2: Per-egg knowledge extraction)</i>"]\n        CMP["egg-compare.md<br/><i>(Stage 2: Knowledge tree diff)</i>"]\n        AC["aggregate-content.md<br/><i>(Stage 1 chunk aggregation)</i>"]\n        AE["aggregate-egg.md<br/><i>(Stage 2 chunk aggregation)</i>"]\n\n        CA --> ROUT\n        ROUT --> EA\n        EA --> CMP\n    end\n\n    subgraph Independent ["3. Independent Features"]\n        direction TB\n        FU["follow-up.md<br/><i>(Interactive popup Q&A)</i>"]\n        MU["merge-unprocessed.md<br/><i>(20+ entries knowledge merge)</i>"]\n        LOC["localize-egg.md<br/><i>(Translate new egg template)</i>"]\n        FU ~~~ MU ~~~ LOC\n    end\n\n    Shared ~~~ Capture\n    Capture ~~~ Independent\n\n    %% Injection connections\n    CTD -.->|"{{content_task_default}}"| CA\n    CTD -.->|"{{content_task_default}}"| AC\n\n    SOR -.->|"{{shared_output_rules}}"| CA\n    SOR -.->|"{{shared_output_rules}}"| EA\n    SOR -.->|"{{shared_output_rules}}"| CMP\n    SOR -.->|"{{shared_output_rules}}"| AC\n    SOR -.->|"{{shared_output_rules}}"| AE\n    SOR -.->|"{{shared_output_rules}}"| FU\n```\n\n---\n\n## Anatomy of an Egg File & How Instructions Work\n\nAn **Egg file** (`nutegg/*.md`) is both a curated knowledge repository and an instruction manual that guides NutEgg\'s AI pipeline whenever content touches that domain.\n\n### 1. Structural Blueprint\n\n```markdown\n---\ntopic: "AI Architecture & Multi-Agent Systems"\nstatus: "active"\nlast_updated: "2026-09-10"\nlanguage: "English"\n---\n\n> [!abstract]- Instructions:\n> **Scope:** Multi-agent architectures, tool calling, memory layers, and LLM evaluation.\n> **Action Guide:** Focus on actionable design patterns, scalability tradeoffs, and real failure modes.\n> **Key Questions:**\n> 1. How are agent memory loops bounded to prevent context window overflow?\n> 2. What coordination mechanism is used between subagents?\n> **Rejection Criteria:**\n> - Ignore basic beginner tutorials or high-level sales pitches without technical substance.\n> - Discard speculative claims lacking empirical benchmarks or code evidence.\n> **Formatting Rules:**\n> - Prefix each insight with a bracketed tag: `[concept]`, `[architecture]`, `[method]`, `[benchmark]`, `[explain]`, `[fact]`, `[example]`.\n> - Use the structure: `- [tag] **Concept Name**` followed by an indented explanation and concrete examples (`- \u{1F3AF} Example:`).\n\n# Knowledge\n## Agent Memory\n- [architecture] **Bounded Replay Buffers**\n    - Ephemeral short-term memory expires after session goals terminate to conserve token budget.\n    - \u{1F3AF} Example: Tool calling trace logs stored in vector stores with sliding window eviction.\n\n# Unprocessed\n(Newly hatched insights land here from captures until auto-merged)\n```\n\n### 2. How to Write Egg Instructions\n\nEach field in the `> [!abstract]- Instructions:` callout controls a specific behavior in the AI workflow:\n\n| Field | Purpose & Best Practices | Workflow Usage |\n|---|---|---|\n| **`**Scope:**`** | 1\u20132 sentences defining the topical boundaries of this egg. Specify what technologies, domains, or concepts are included and excluded. | Injected into [`egg-analysis.md`](./egg-analysis.md) (Stage 2) so the AI extracts knowledge through this domain lens. |\n| **`**Action Guide:**`** | 2-step instructions for Stage 2 egg analysis: Step 1 (Novel Delta: extract only genuinely new insights) and Step 2 (Decide: whether user should spend time reading). | Injected into [`egg-analysis.md`](./egg-analysis.md) and [`egg-compare.md`](./egg-compare.md) (Stage 2). |\n| **`**Key Questions:**`** | Numbered list of recurring questions you want answered whenever content touches this domain (e.g. *"What are the hidden tradeoffs?", "What is the token cost?"*). | Injected into [`egg-analysis.md`](./egg-analysis.md) (Stage 2). Answered in the popup and raw capture notes. |\n| **`**Rejection Criteria:**`** | Bulleted list of low-signal filters (e.g. *"Ignore beginner tutorials", "Reject speculative price talk"*). | Injected into [`egg-compare.md`](./egg-compare.md) (Stage 2). If matched, flags `rejected: true`, sets `readVerdict: false`, and gives a skip reason. |\n| **`**Formatting Rules:**`** | Standards for phrasing, tags (`[concept]`, `[architecture]`, `[method]`, etc.), and hierarchical indentation. | Injected into [`egg-analysis.md`](./egg-analysis.md) (Stage 2). Guarantees candidate entries match your notes\' formatting. |\n\n### 3. Knowledge Tree vs. Unprocessed Queue\n\n- **`# Knowledge` (Curated Knowledge Tree)**:\n  - Structured with markdown headings (`##`, `###`) and indented bullet points.\n  - Injected as `{{knowledge_tree}}` into [`egg-compare.md`](./egg-compare.md) (Stage 2). The AI compares extracted candidate insights against this tree to filter out redundant concepts and surface only true **Novel Delta**.\n- **`# Unprocessed` (Staging Queue)**:\n  - When you click **\u{1F95A} Hatch Egg** in the browser, fresh insights are safely appended to `# Unprocessed` first. This prevents AI runs from corrupting your curated knowledge tree.\n  - When 20+ entries accumulate (or when you click **Merge** in the Obsidian reading view widget), [`merge-unprocessed.md`](./merge-unprocessed.md) runs automatically to deduplicate and nest pending entries under appropriate parent concepts in `# Knowledge`.\n\n### 4. End-to-End Workflow Mapping\n\n```\n                                  [Captured Web Content]\n                                            \u2502\n               Stage 1: Content Analysis    \u25BC    _index.md (Topic routing guide)\n               \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n               \u2022 Uses content-task-default.md (fixed content tasks)\n               \u2022 Generates Title Verdict, 3-Bullet Summary, Chapter Map\n               \u2022 egg-routing.md matches egg descriptions via Stage 1 summary\n                                            \u2502\n                                            \u25BC\n               Interactive Review: User confirms or selects target eggs\n                                            \u2502\n               Stage 2: Per-Egg Deep Dive   \u25BC    Target Egg File (nutegg/*.md)\n               \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n               \u2022 Scope, Key Questions, Formatting Rules \u2500\u2500\u25BA egg-analysis.md\n                 (Extracts candidate knowledge entries and answers questions)\n               \u2022 Rejection Criteria, # Knowledge Tree \u2500\u2500\u25BA egg-compare.md\n                 (Diffs candidates against existing tree, drops redundant entries)\n                                            \u2502\n                                            \u25BC\n               Hatch Egg: Confirmed novel entries appended to # Unprocessed\n                                            \u2502\n               Merge Cycle (20+ entries or button click)\n               \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n               \u2022 merge-unprocessed.md nests and integrates entries into # Knowledge\n```\n\n---\n\n## Workflow File Directory\n\n### 1. Shared Fragments\n\nThese are **not standalone prompts** \u2014 they are modular snippets injected as `{{placeholders}}` into other prompts.\n\n| File | Injected As | Injected Into | Purpose |\n|---|---|---|---|\n| [`shared-output-rules.md`](./shared-output-rules.md) | `{{shared_output_rules}}` | `content-analysis`, `egg-analysis`, `egg-compare`, `aggregate-content`, `aggregate-egg`, `follow-up` | Combined grounding directive (content as sole truth) and multi-lingual output language reference rule. |\n| [`content-task-default.md`](./content-task-default.md) | `{{content_task_default}}` | `content-analysis`, `aggregate-content` | Default fixed tasks for content analysis: Title Verdict, 3-Bullet Core Summary, and Chapter Map. |\n\n### 2. Content Capture Pipeline\n\n| File | Pipeline Stage | Purpose | Output Format |\n|---|---|---|---|\n| [`content-analysis.md`](./content-analysis.md) | Stage 1: Content Analysis | Content-level summary: title verdict, 3-bullet summary, chapter map, and custom user question answers. | JSON (`titleVerdict`, `coreSummary`, `isLongForm`, `chapterMap`, `customQuestionAnswers`) |\n| [`egg-routing.md`](./egg-routing.md) | Stage 1: Summary-Based Routing | Matches the Stage 1 content summary against egg descriptions in `_index.md` to select matching eggs with minimal tokens. | Plain text list of filenames (one per line) |\n| [`egg-analysis.md`](./egg-analysis.md) | Stage 2: Egg Extraction | Per-egg extraction: candidate knowledge entries and key question answers scoped strictly to one egg\'s instructions. | JSON (`keyQuestionAnswers`, `extractedEntries`) |\n| [`egg-compare.md`](./egg-compare.md) | Stage 2: Knowledge Diff | Diffs candidate entries against the egg\'s existing `# Knowledge` tree and `# Unprocessed` to find novel insights and determine read verdict. | JSON (`novelDelta`, `redundantEntries`, `rejected`, `rejectReason`, `readVerdict`, `readVerdictReason`) |\n\n### 3. Long Content Aggregation\n\nUsed only when content exceeds ~30k characters (long articles, 1-2 hour videos). Each chunk is processed through extraction first, then these prompts synthesize the per-chunk results.\n\n| File | Pipeline Stage | Purpose | Output Format |\n|---|---|---|---|\n| [`aggregate-content.md`](./aggregate-content.md) | Stage 1 Aggregation | Merges per-chunk summaries into one cohesive title verdict, core summary, and user Q&A for the whole content. | JSON (`titleVerdict`, `coreSummary`, `customQuestionAnswers`) |\n| [`aggregate-egg.md`](./aggregate-egg.md) | Stage 2 Aggregation | Synthesizes per-chunk findings into unified knowledge entries, key question answers, and read verdict for each egg. | JSON (`novelDelta`, `keyQuestionAnswers`, `rejected`, `rejectReason`, `readVerdict`, `readVerdictReason`) |\n\n### 4. Independent Features\n\n| File | Trigger | Purpose | Output Format |\n|---|---|---|---|\n| [`follow-up.md`](./follow-up.md) | User asks questions in Chrome popup | Answers follow-up questions about the captured content with conversation history context. | JSON (`answers`: `[{"question", "answer"}]`) |\n| [`merge-unprocessed.md`](./merge-unprocessed.md) | Manual button or 20+ entries threshold | Deduplicates and nests accumulated `# Unprocessed` entries into the structured `# Knowledge` tree. | JSON (`knowledge`, `unprocessed`) |\n| [`localize-egg.md`](./localize-egg.md) | New egg with non-English description | Translates the egg template into the language of the egg\'s description while keeping parser-critical headings in English. | Full egg note (Markdown) |\n\n---\n\n## Customization Rules & Guidelines\n\n### \u2705 What You Can Safely Customize\n- **Tone and Perspective**: You can instruct the AI to be more critical, more technical, or focus on specific themes.\n- **Summary Depth**: You can change how concise or detailed summaries should be.\n- **Language / Idiom Preferences**: You can tweak phrasing, formatting preferences, or custom analytical lenses.\n- **Shared Output Rules**: Edit `shared-output-rules.md` to adjust how strictly the AI stays grounded to the source content or handles output languages across all prompts.\n\n### \u26A0\uFE0F What You Must Preserve (To Prevent Parser Errors)\n1. **`{{placeholders}}`**: The strings enclosed in double curly braces (e.g. `{{content}}`, `{{egg_description}}`, `{{knowledge_tree}}`) are replaced dynamically by the engine. Do not delete or rename them.\n2. **JSON Schemas**: Prompts that output JSON must keep the exact JSON key names specified in the template. The TypeScript engine parses these exact keys.\n3. **Markdown Structural Headings**: In prompts that output markdown (`localize-egg.md`), structural labels and headings like `# Knowledge` and `# Unprocessed` must remain verbatim in English for the note parser.\n\n---\n\n## Updates & Conflict Resolution\n\nWhen NutEgg updates to a newer version:\n- **If you haven\'t edited a workflow file**: The plugin automatically updates it to the latest version.\n- **If you have customized a workflow file**: NutEgg will **never overwrite your custom version**. Instead, it writes `[filename].new.md` alongside your file so you can inspect what changed in the update.\n- **Obsolete prompt cleanup**: Any unedited prompt files that were removed in a newer release of NutEgg are automatically pruned so your `_workflow/` folder stays clean.\n- **Use Defaults (Clean Reset)**: You can reset all workflow files back to factory defaults at any time from `Obsidian Settings \u2192 NutEgg \u2192 Use Default Workflow Prompts` by clicking **Use Defaults**. This safely moves all your existing files to a timestamped backup folder (`_workflow/_backup/<timestamp>/`), clears obsolete files, and restores clean built-in defaults.\n';
+
+// src/workflow-manager.ts
+var WORKFLOW_FILE_MAP = {
+  contentAnalysis: "content-analysis.md",
+  eggAnalysis: "egg-analysis.md",
+  eggCompare: "egg-compare.md",
+  followUp: "follow-up.md",
+  eggRouting: "egg-routing.md",
+  contentTaskDefault: "content-task-default.md",
+  mergeUnprocessed: "merge-unprocessed.md",
+  aggregateContent: "aggregate-content.md",
+  aggregateEgg: "aggregate-egg.md",
+  localizeEgg: "localize-egg.md",
+  sharedOutputRules: "shared-output-rules.md"
+};
+var BUILTIN_WORKFLOW_FILES = {
+  "README.md": README_default,
+  "content-analysis.md": PROMPTS.contentAnalysis,
+  "egg-analysis.md": PROMPTS.eggAnalysis,
+  "egg-compare.md": PROMPTS.eggCompare,
+  "follow-up.md": PROMPTS.followUp,
+  "egg-routing.md": PROMPTS.eggRouting,
+  "content-task-default.md": PROMPTS.contentTaskDefault,
+  "merge-unprocessed.md": PROMPTS.mergeUnprocessed,
+  "aggregate-content.md": PROMPTS.aggregateContent,
+  "aggregate-egg.md": PROMPTS.aggregateEgg,
+  "localize-egg.md": PROMPTS.localizeEgg,
+  "shared-output-rules.md": PROMPTS.sharedOutputRules
+};
+function simpleHash(str) {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = hash * 33 ^ str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+var WorkflowManager = class {
+  plugin;
+  cache = /* @__PURE__ */ new Map();
+  initialized = false;
+  constructor(plugin) {
+    this.plugin = plugin;
+  }
+  get workflowFolder() {
+    if (this.plugin.settings?.workflowFolder) {
+      return this.plugin.settings.workflowFolder;
+    }
+    const base = this.plugin.vaultFolder || "nutegg";
+    return `${base}/_workflow`;
+  }
+  /** Initialize watcher, seed files, and load cache */
+  async init() {
+    if (!this.initialized && this.plugin.app?.vault?.on) {
+      this.plugin.app.vault.on("modify", (file) => {
+        this.onFileChanged(file);
+      });
+      this.plugin.app.vault.on("create", (file) => {
+        this.onFileChanged(file);
+      });
+      this.plugin.app.vault.on("delete", (file) => {
+        this.onFileDeleted(file);
+      });
+      this.initialized = true;
+    }
+    await this.ensureWorkflowFiles();
+  }
+  /**
+   * Ensure the workflow folder and all built-in files exist in the vault.
+   * Detects version updates non-destructively:
+   * - Unmodified files are updated cleanly.
+   * - User-customized files are preserved, and new versions are written as `*.new.md`.
+   */
+  async ensureWorkflowFiles() {
+    const folder = this.workflowFolder;
+    await this.ensureFolder(folder);
+    if (!this.plugin.settings.workflowHashes) {
+      this.plugin.settings.workflowHashes = {};
+    }
+    let settingsChanged = false;
+    for (const [filename, builtinContent] of Object.entries(BUILTIN_WORKFLOW_FILES)) {
+      const filePath = `${folder}/${filename}`;
+      const builtinHash = simpleHash(builtinContent);
+      let file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+      const existsOnDisk = await this.plugin.app.vault.adapter.exists(filePath);
+      if (!file && !existsOnDisk) {
+        try {
+          await this.plugin.app.vault.create(filePath, builtinContent);
+          this.cache.set(filename, builtinContent);
+          this.plugin.settings.workflowHashes[filename] = builtinHash;
+          settingsChanged = true;
+          console.log(`[NutEgg] Seeded workflow file: ${filePath}`);
+        } catch (err) {
+          console.warn(`[NutEgg] Could not create ${filePath}:`, err);
+        }
+      } else {
+        try {
+          let vaultContent;
+          if (file instanceof import_obsidian5.TFile) {
+            vaultContent = await this.plugin.app.vault.read(file);
+          } else {
+            vaultContent = await this.plugin.app.vault.adapter.read(filePath);
+          }
+          this.cache.set(filename, vaultContent);
+          const currentVaultHash = simpleHash(vaultContent);
+          const recordedHash = this.plugin.settings.workflowHashes[filename];
+          if (currentVaultHash === builtinHash) {
+            if (recordedHash !== builtinHash) {
+              this.plugin.settings.workflowHashes[filename] = builtinHash;
+              settingsChanged = true;
+            }
+          } else if (recordedHash && recordedHash === currentVaultHash) {
+            if (file instanceof import_obsidian5.TFile) {
+              await this.plugin.app.vault.modify(file, builtinContent);
+            } else {
+              await this.plugin.app.vault.adapter.write(filePath, builtinContent);
+            }
+            this.cache.set(filename, builtinContent);
+            this.plugin.settings.workflowHashes[filename] = builtinHash;
+            settingsChanged = true;
+            console.log(`[NutEgg] Auto-updated unmodified workflow file: ${filePath}`);
+          } else if (!recordedHash) {
+            this.plugin.settings.workflowHashes[filename] = currentVaultHash;
+            settingsChanged = true;
+          } else {
+            const baseName = filename.replace(/\.md$/, "");
+            const newPath = `${folder}/${baseName}.new.md`;
+            const existingNew = this.plugin.app.vault.getAbstractFileByPath(newPath);
+            const newExistsOnDisk = await this.plugin.app.vault.adapter.exists(newPath);
+            if (!existingNew && !newExistsOnDisk) {
+              try {
+                await this.plugin.app.vault.create(newPath, builtinContent);
+                console.log(`[NutEgg] Saved updated workflow template to: ${newPath}`);
+                new import_obsidian5.Notice(
+                  `[NutEgg] Workflow update available for ${filename}. Your custom file was preserved; see ${baseName}.new.md to compare.`,
+                  8e3
+                );
+              } catch {
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`[NutEgg] Error reading workflow file ${filePath}:`, err);
+        }
+      }
+    }
+    const localFiles = this.getWorkflowFiles();
+    for (const file of localFiles) {
+      const relName = file.path.slice(folder.length + 1);
+      if (!(relName in BUILTIN_WORKFLOW_FILES) && !relName.endsWith(".new.md")) {
+        const recordedHash = this.plugin.settings.workflowHashes[relName];
+        if (recordedHash) {
+          const content = await this.plugin.app.vault.read(file);
+          if (simpleHash(content) === recordedHash) {
+            await this.plugin.app.vault.delete(file);
+            delete this.plugin.settings.workflowHashes[relName];
+            this.cache.delete(relName);
+            settingsChanged = true;
+            console.log(`[NutEgg] Auto-removed obsolete unmodified workflow file: ${file.path}`);
+          }
+        }
+      }
+    }
+    if (settingsChanged) {
+      await this.plugin.saveSettings();
+    }
+  }
+  /** Retrieve all workflow files in workflowFolder, excluding _backup/ */
+  getWorkflowFiles() {
+    const folder = this.workflowFolder;
+    const vault = this.plugin.app.vault;
+    let allFiles = [];
+    if (typeof vault.getFiles === "function") {
+      allFiles = vault.getFiles();
+    } else if (typeof vault.getMarkdownFiles === "function") {
+      allFiles = vault.getMarkdownFiles();
+    }
+    return allFiles.filter(
+      (f) => f.path.startsWith(`${folder}/`) && !f.path.startsWith(`${folder}/_backup/`) && !f.path.endsWith("/_backup")
+    );
+  }
+  /** Retrieve prompt text dynamically from vault cache, falling back to built-in */
+  getPrompt(key) {
+    const filename = WORKFLOW_FILE_MAP[key];
+    if (!filename)
+      return "";
+    const cached = this.cache.get(filename);
+    if (cached && cached.trim().length > 0) {
+      return cached;
+    }
+    return BUILTIN_WORKFLOW_FILES[filename] || "";
+  }
+  /**
+   * Reset workflow files to built-in defaults:
+   * 1. Moves ALL current files in workflowFolder to a timestamped backup folder.
+   * 2. Copies clean built-in prompt files into workflowFolder.
+   * 3. Resets cache and workflow hashes.
+   */
+  async resetToDefaults() {
+    const folder = this.workflowFolder;
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const backupFolder = `${folder}/_backup/${timestamp}`;
+    await this.ensureFolder(backupFolder);
+    const existingFiles = this.getWorkflowFiles();
+    for (const file of existingFiles) {
+      const relName = file.path.slice(folder.length + 1);
+      const lastSlash = relName.lastIndexOf("/");
+      if (lastSlash !== -1) {
+        await this.ensureFolder(`${backupFolder}/${relName.slice(0, lastSlash)}`);
+      }
+      const content = await this.plugin.app.vault.read(file);
+      await this.plugin.app.vault.create(`${backupFolder}/${relName}`, content);
+      await this.plugin.app.vault.delete(file);
+    }
+    this.cache.clear();
+    this.plugin.settings.workflowHashes = {};
+    for (const [filename, builtinContent] of Object.entries(BUILTIN_WORKFLOW_FILES)) {
+      const filePath = `${folder}/${filename}`;
+      await this.plugin.app.vault.create(filePath, builtinContent);
+      this.cache.set(filename, builtinContent);
+      this.plugin.settings.workflowHashes[filename] = simpleHash(builtinContent);
+    }
+    await this.plugin.saveSettings();
+    new import_obsidian5.Notice(`[NutEgg] Reset workflow files to defaults. Previous files moved to ${backupFolder}`);
+  }
+  /** Alias for backward compatibility */
+  async syncToDefaults() {
+    return this.resetToDefaults();
+  }
+  async onFileChanged(file) {
+    if (!(file instanceof import_obsidian5.TFile) || !file.path.startsWith(this.workflowFolder)) {
+      return;
+    }
+    const filename = file.name;
+    if (filename in BUILTIN_WORKFLOW_FILES) {
+      const content = await this.plugin.app.vault.read(file);
+      this.cache.set(filename, content);
+    }
+  }
+  onFileDeleted(file) {
+    if (!file.path.startsWith(this.workflowFolder)) {
+      return;
+    }
+    const parts = file.path.split("/");
+    const filename = parts[parts.length - 1];
+    if (this.cache.has(filename)) {
+      this.cache.delete(filename);
+    }
+  }
+  async ensureFolder(path) {
+    const parts = path.split("/");
+    let currentPath = "";
+    for (const part of parts) {
+      if (!part)
+        continue;
+      currentPath += (currentPath ? "/" : "") + part;
+      try {
+        const exists = await this.plugin.app.vault.adapter.exists(currentPath);
+        if (!exists) {
+          await this.plugin.app.vault.createFolder(currentPath);
+        }
+      } catch {
+      }
+    }
+  }
+};
+
 // src/main.ts
-var NutEggPlugin = class extends import_obsidian3.Plugin {
+var NutEggPlugin = class extends import_obsidian6.Plugin {
   aiClient;
   server;
   aiProcessor;
@@ -3936,40 +5692,55 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
   indexReader;
   eggParser;
   indexSync;
+  workflowManager;
   db;
   creditStatusBarItem = null;
+  get vaultFolder() {
+    return this.settings?.indexFile ? this.settings.indexFile.replace(/\/[^/]+$/, "") : "nutegg";
+  }
   async onload() {
     await this.loadSettings();
-    await this.initializeVault();
+    this.workflowManager = new WorkflowManager(this);
     this.aiClient = new AIClient(this.settings);
     this.aiProcessor = new AIProcessor(this);
     this.knowledgeBase = new KnowledgeBase(this);
     this.indexReader = new IndexReader(this);
     this.eggParser = new EggParser(this);
     this.indexSync = new IndexSync(this);
+    this.indexSync.init();
     this.db = new NutEggDatabase(this);
-    await this.db.init();
+    try {
+      await this.db.init();
+    } catch (err) {
+      console.warn("[NutEgg] DB init warning:", err);
+    }
     this.server = new NutEggServer(this, this.settings.serverPort);
     try {
       await this.server.start();
-      new import_obsidian3.Notice(`NutEgg server started on port ${this.settings.serverPort}`);
+      new import_obsidian6.Notice(`NutEgg server started on port ${this.settings.serverPort}`);
     } catch (err) {
       console.error("[NutEgg] Failed to start server:", err);
-      new import_obsidian3.Notice("NutEgg: Failed to start server. Check console for details.");
+      new import_obsidian6.Notice("NutEgg: Failed to start server. Check console for details.");
     }
     this.addSettingTab(new NutEggSettingTab(this.app, this));
-    try {
-      await this.indexSync.checkAndFix();
-    } catch (err) {
-      console.error("[NutEgg] Index sync check failed:", err);
+    const runPostLayoutInit = async () => {
+      try {
+        await this.initializeVault();
+      } catch (err) {
+        console.error("[NutEgg] Vault initialization failed:", err);
+      }
+      try {
+        await this.indexSync.checkAndFix();
+      } catch (err) {
+        console.error("[NutEgg] Index sync check failed:", err);
+      }
+      this.updateCreditStatusBar();
+    };
+    if (this.app?.workspace?.onLayoutReady) {
+      this.app.workspace.onLayoutReady(runPostLayoutInit);
+    } else {
+      runPostLayoutInit();
     }
-    this.registerInterval(
-      window.setInterval(() => {
-        this.indexSync.checkAndFix().catch((err) => {
-          console.error("[NutEgg] Index sync check failed:", err);
-        });
-      }, 5 * 60 * 1e3)
-    );
     this.addRibbonIcon("egg", "NutEgg: Open Index", async () => {
       const indexPath = this.settings.indexFile;
       const file = this.app.vault.getAbstractFileByPath(indexPath);
@@ -3984,23 +5755,8 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
     this.addCommand({
       id: "nutegg-new-egg",
       name: "Create a new egg file",
-      callback: async () => {
-        const eggName = await this.promptForEggName();
-        if (!eggName)
-          return;
-        const fileName = `nutegg/${eggName}.md`;
-        await this.ensureFolder("nutegg");
-        const existingFile = this.app.vault.getAbstractFileByPath(fileName);
-        if (existingFile) {
-          const leaf = this.app.workspace.getLeaf(false);
-          await leaf.openFile(existingFile);
-          return;
-        }
-        await this.app.vault.create(fileName, EGG_TEMPLATE);
-        new import_obsidian3.Notice(`NutEgg: Created ${fileName}`);
-        new import_obsidian3.Notice(
-          `NutEgg: Add "${fileName}: description" to ${this.settings.indexFile}`
-        );
+      callback: () => {
+        new CreateEggModal(this.app, this).open();
       }
     });
     this.addCommand({
@@ -4013,7 +5769,7 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
           const leaf = this.app.workspace.getLeaf(false);
           await leaf.openFile(file);
         } else {
-          new import_obsidian3.Notice(`NutEgg: ${indexPath} not found. Click the egg icon to create it.`);
+          new import_obsidian6.Notice(`NutEgg: ${indexPath} not found. Click the egg icon to create it.`);
         }
       }
     });
@@ -4023,22 +5779,22 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
       callback: async () => {
         const activeFile = this.app.workspace.getActiveFile();
         if (!activeFile) {
-          new import_obsidian3.Notice("NutEgg: No active file");
+          new import_obsidian6.Notice("NutEgg: No active file");
           return;
         }
-        if (!activeFile.path.endsWith(".md") || activeFile.path.endsWith("_index.md") || activeFile.path.includes("/_raw/")) {
-          new import_obsidian3.Notice("NutEgg: Active file is not an egg note");
+        if (!isEggPath(activeFile.path, this.vaultFolder)) {
+          new import_obsidian6.Notice("NutEgg: Active file is not an egg note");
           return;
         }
-        new import_obsidian3.Notice(`NutEgg: Merging unprocessed entries in ${activeFile.basename}...`);
-        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian3.MarkdownView);
+        new import_obsidian6.Notice(`NutEgg: Merging unprocessed entries in ${activeFile.basename}...`);
+        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
         const cm = activeView?.editor?.cm;
         const docText = cm ? cm.state.doc.toString() : null;
         const result = await runMerge(this, activeFile.path, docText);
         if (result && result.entries > 0) {
-          new import_obsidian3.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
+          new import_obsidian6.Notice(`[NutEgg] Merged ${result.entries} entries into knowledge tree`);
         } else {
-          new import_obsidian3.Notice("[NutEgg] No unprocessed entries to merge or merge failed.");
+          new import_obsidian6.Notice("[NutEgg] No unprocessed entries to merge or merge failed.");
         }
       }
     });
@@ -4047,6 +5803,13 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
       name: "Check AI provider credit & balance",
       callback: async () => {
         await this.updateCreditStatusBar(true);
+      }
+    });
+    this.addCommand({
+      id: "nutegg-use-default-workflow-prompts",
+      name: "Use default workflow prompts (backup existing)",
+      callback: async () => {
+        await this.workflowManager.resetToDefaults();
       }
     });
     this.creditStatusBarItem = this.addStatusBarItem();
@@ -4063,6 +5826,8 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
     );
     registerMergeWidget(this);
     registerMergeEditorExtension(this);
+    registerIndexWidget(this);
+    registerIndexEditorExtension(this);
     console.log("[NutEgg] Plugin loaded");
   }
   /**
@@ -4080,17 +5845,17 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
           `NutEgg AI (${credit.providerLabel}): ${credit.statusText} (Click to refresh)`
         );
         if (showNotice) {
-          new import_obsidian3.Notice(`[NutEgg] ${credit.providerLabel}: ${credit.statusText}`);
+          new import_obsidian6.Notice(`[NutEgg] ${credit.providerLabel}: ${credit.statusText}`);
         }
       } else {
-        const label = this.settings.aiSource === "openrouter" ? "OpenRouter" : credit.providerLabel;
+        const label = this.settings.aiProvider === "openrouter" ? "OpenRouter" : credit.providerLabel;
         this.creditStatusBarItem.setText(`\u{1FA99} ${label}`);
         this.creditStatusBarItem.setAttribute(
           "aria-label",
           `NutEgg AI: ${credit.statusText} (Click to refresh)`
         );
         if (showNotice) {
-          new import_obsidian3.Notice(`[NutEgg] AI Provider: ${credit.statusText}`);
+          new import_obsidian6.Notice(`[NutEgg] AI Provider: ${credit.statusText}`);
         }
       }
     } catch {
@@ -4113,58 +5878,43 @@ var NutEggPlugin = class extends import_obsidian3.Plugin {
    * Create the nutegg/ directory structure and boilerplate _index.md on first run.
    */
   async initializeVault() {
-    await this.ensureFolder("nutegg");
-    await this.ensureFolder(this.settings.rawFolder);
-    const indexPath = this.settings.indexFile;
-    const existing = await this.app.vault.adapter.exists(indexPath);
-    if (!existing) {
-      await this.app.vault.create(indexPath, INDEX_TEMPLATE);
-      console.log(`[NutEgg] Created ${indexPath}`);
-      for (const { path, content } of EXAMPLE_EGGS) {
-        if (!await this.app.vault.adapter.exists(path)) {
-          await this.app.vault.create(path, content);
-          console.log(`[NutEgg] Created ${path}`);
+    try {
+      await this.ensureFolder(this.vaultFolder);
+      await this.ensureFolder(this.settings.rawFolder);
+      await this.workflowManager.init();
+      const indexPath = this.settings.indexFile;
+      const existing = await this.app.vault.adapter.exists(indexPath);
+      if (!existing) {
+        await this.app.vault.create(indexPath, INDEX_TEMPLATE);
+        console.log(`[NutEgg] Created ${indexPath}`);
+        for (const { path, content } of EXAMPLE_EGGS) {
+          if (!await this.app.vault.adapter.exists(path)) {
+            try {
+              await this.app.vault.create(path, content);
+              console.log(`[NutEgg] Created ${path}`);
+            } catch {
+            }
+          }
         }
       }
+    } catch (err) {
+      console.error("[NutEgg] Vault initialization error:", err);
     }
   }
   async ensureFolder(folder) {
     const parts = folder.split("/");
     let currentPath = "";
     for (const part of parts) {
+      if (!part)
+        continue;
       currentPath += (currentPath ? "/" : "") + part;
-      const exists = await this.app.vault.adapter.exists(currentPath);
-      if (!exists) {
-        await this.app.vault.createFolder(currentPath);
+      try {
+        const exists = await this.app.vault.adapter.exists(currentPath);
+        if (!exists) {
+          await this.app.vault.createFolder(currentPath);
+        }
+      } catch {
       }
     }
-  }
-  /**
-   * Simple prompt modal for getting an egg name.
-   */
-  async promptForEggName() {
-    return new Promise((resolve) => {
-      const modal = new class extends import_obsidian3.SuggestModal {
-        constructor(app) {
-          super(app);
-          this.setPlaceholder("Enter egg name (e.g., invest_strategy, psychology, ai_ml)...");
-        }
-        getSuggestions(query) {
-          if (!query)
-            return [];
-          return [{ text: query.toLowerCase().replace(/\s+/g, "-") }];
-        }
-        renderSuggestion(item, el) {
-          el.createEl("div", {
-            text: `Create egg file: ${item.text}.md`
-          });
-        }
-        onChooseSuggestion(item) {
-          resolve(item.text);
-        }
-      }(this.app);
-      modal.onClose = () => resolve(null);
-      modal.open();
-    });
   }
 };
