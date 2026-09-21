@@ -1156,6 +1156,11 @@ var NutEggSettingTab = class extends import_obsidian.PluginSettingTab {
         );
       })
     );
+    new import_obsidian.Setting(containerEl).setName("Report a Bug").setDesc("Found an issue, unexpected behavior, or need help? Report it on GitHub issues.").addButton(
+      (btn) => btn.setButtonText("\u{1F41B} Report Bug on GitHub \u2197").onClick(() => {
+        this.plugin.openBugReport();
+      })
+    );
     containerEl.createEl("h3", { text: "Vault Paths" });
     new import_obsidian.Setting(containerEl).setName("Raw Content Folder").setDesc("Folder for saved raw content").addText(
       (text) => text.setPlaceholder("nutegg/_raw").setValue(settings.rawFolder).onChange(async (value) => {
@@ -2363,7 +2368,7 @@ var NutEggServer = class {
     this.server = http.createServer((req, res) => {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-NutEgg-Extension-Version");
       if (req.method === "OPTIONS") {
         res.writeHead(204);
         res.end();
@@ -2371,7 +2376,12 @@ var NutEggServer = class {
       }
       if (req.method === "GET" && req.url === "/health") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "ok", port: this.port, timestamp: Date.now() }));
+        res.end(JSON.stringify({
+          status: "ok",
+          port: this.port,
+          version: this.plugin.manifest?.version || "",
+          timestamp: Date.now()
+        }));
         return;
       }
       if (req.method === "GET" && req.url === "/config-status") {
@@ -2452,7 +2462,13 @@ var NutEggServer = class {
     } catch {
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status, issues, port: this.port, credit }));
+    res.end(JSON.stringify({
+      status,
+      issues,
+      port: this.port,
+      version: this.plugin.manifest?.version || "",
+      credit
+    }));
   }
   /**
    * GET /credit — Returns live balance and credit status for the current AI provider.
@@ -2634,12 +2650,21 @@ var NutEggServer = class {
           contentAnalysis2
         );
         delete result.stage;
-        const nutId = this.recordNut(capture, result);
+        let nutId2 = capture.nutId;
+        if (nutId2 && this.plugin.db?.getNutById(nutId2)) {
+          this.plugin.db.updateNut(nutId2, {
+            summary: [result.titleVerdict, ...result.coreSummary || []].filter(Boolean).join("\n"),
+            matchedEggs: result.matchedEggs || [],
+            analysisResult: result
+          });
+        } else {
+          nutId2 = this.recordNut(capture, result);
+        }
         console.log(
           `[NutEgg] Analyzed (Stage 2): ${capture.title} \u2014 shouldRead=${result.shouldRead}, newKnowledge=${result.newKnowledge.length}`
         );
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ...result, stage: "stage2", nutId }));
+        res.end(JSON.stringify({ ...result, stage: "stage2", nutId: nutId2 }));
         return;
       }
       const contentAnalysis = await this.plugin.aiProcessor.analyzeContent(capture);
@@ -2659,16 +2684,25 @@ var NutEggServer = class {
         );
         matchedEggs = matchedIndex.map((e) => e.fileName);
       }
+      const stage1Result = {
+        ...contentAnalysis,
+        matchedEggs,
+        allEggs: index.map((e) => e.fileName),
+        stage: "stage1",
+        shouldRead: false,
+        shouldReadReason: "",
+        eggResults: [],
+        newKnowledge: []
+      };
+      const nutId = this.recordNut(capture, stage1Result);
       console.log(
-        `[NutEgg] Analyzed (Stage 1): ${capture.title} \u2014 matchedEggs=${matchedEggs.length}`
+        `[NutEgg] Analyzed (Stage 1): ${capture.title} \u2014 matchedEggs=${matchedEggs.length}, nutId=${nutId}`
       );
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
-          ...contentAnalysis,
-          matchedEggs,
-          allEggs: index.map((e) => e.fileName),
-          stage: "stage1"
+          ...stage1Result,
+          nutId
         })
       );
     } catch (err) {
@@ -3365,7 +3399,7 @@ var AIProcessor = class {
       titleVerdict: String(parsed.titleVerdict || "Could not generate a verdict."),
       coreSummary: Array.isArray(parsed.coreSummary) ? parsed.coreSummary.map(String).slice(0, 3) : [],
       isLongForm: parsed.isLongForm === true,
-      chapterMap: this.completeChapterMap(
+      chapterMap: parsed.isLongForm === false && (!capture.chapters || capture.chapters.length === 0) ? [] : this.completeChapterMap(
         Array.isArray(parsed.chapterMap) ? parsed.chapterMap.filter((c) => c && (c.time || c.title)).map((c) => ({
           time: String(c.time || ""),
           title: String(c.title || ""),
@@ -3776,7 +3810,7 @@ ${delta || "- (no novel delta)"}`;
       }
       chunks[idx].chapters.push(ch);
     }
-    if (chapters.length === 0) {
+    if (chapters.length === 0 && lastCaptionSec >= this.sectionGridSeconds) {
       const begins = chunks.map((c) => this.toSeconds(c.startTime));
       for (let t = 0; t < lastCaptionSec + 1; t += this.sectionGridSeconds) {
         let idx = 0;
@@ -4028,6 +4062,8 @@ ${sections.map((s) => `- [${s}]`).join("\n")}`;
   completeChapterMap(parsed, sections) {
     if (!sections?.length)
       return parsed;
+    if (!parsed || parsed.length === 0)
+      return [];
     const byTime = new Map(parsed.map((e) => [this.toSeconds(e.time), e]));
     return sections.map((s) => {
       const e = byTime.get(this.toSeconds(s));
@@ -4645,7 +4681,7 @@ var NutEggDatabase = class {
     const row = this.db.prepare("SELECT * FROM nuts WHERE id = ?").get(id);
     return row ? this.mapRow(row) : null;
   }
-  /** Update the save state of one capture row (called by /confirm). */
+  /** Update the save state or analysis result of one capture row. */
   updateNut(id, patch) {
     if (!this.db)
       return;
@@ -4659,6 +4695,18 @@ var NutEggDatabase = class {
     if (patch.fileName !== void 0) {
       sets.push("file_name = ?");
       params.push(patch.fileName);
+    }
+    if (patch.summary !== void 0) {
+      sets.push("summary = ?");
+      params.push(patch.summary);
+    }
+    if (patch.matchedEggs !== void 0) {
+      sets.push("matched_eggs = ?");
+      params.push(JSON.stringify(patch.matchedEggs));
+    }
+    if (patch.analysisResult !== void 0) {
+      sets.push("analysis_result = ?");
+      params.push(patch.analysisResult ? JSON.stringify(patch.analysisResult) : null);
     }
     if (sets.length === 0)
       return;
@@ -5812,6 +5860,13 @@ var NutEggPlugin = class extends import_obsidian6.Plugin {
         await this.workflowManager.resetToDefaults();
       }
     });
+    this.addCommand({
+      id: "nutegg-report-bug",
+      name: "Report a bug on GitHub",
+      callback: () => {
+        this.openBugReport();
+      }
+    });
     this.creditStatusBarItem = this.addStatusBarItem();
     this.creditStatusBarItem.addClass("nutegg-statusbar-credit");
     this.creditStatusBarItem.setText("\u{1FA99} NutEgg AI");
@@ -5861,6 +5916,37 @@ var NutEggPlugin = class extends import_obsidian6.Plugin {
     } catch {
       this.creditStatusBarItem.setText("\u{1FA99} AI");
     }
+  }
+  /**
+   * Redirect to GitHub issues prefilled with bug report template.
+   */
+  openBugReport(contentUrl = "", errorContext = "") {
+    const version = this.manifest.version || "0.0.0";
+    const osInfo = typeof process !== "undefined" ? `${process.platform} ${process.arch}` : navigator.userAgent || "Desktop";
+    const observed = errorContext ? `Encountered error: ${errorContext}` : "<!-- Describe what actually happened (e.g. error message, unexpected output, failed merge, sync issue) -->";
+    const body = [
+      "### URL of the content",
+      contentUrl || "[Enter the URL of the article, video, or webpage here if applicable]",
+      "",
+      "### Expected behavior",
+      "<!-- A clear description of what you expected to happen -->",
+      "",
+      "",
+      "### Observed behavior",
+      observed,
+      "",
+      "",
+      "### Environment",
+      `- NutEgg Obsidian Plugin Version: v${version}`,
+      `- OS / Platform: ${osInfo}`,
+      `- AI Provider: ${this.settings.aiProvider}`,
+      `- AI Model: ${this.settings.aiModel}`
+    ].join("\n");
+    const title = errorContext ? `[Bug]: ${errorContext.slice(0, 60)}` : "[Bug]: ";
+    const issueUrl = `https://github.com/staff-000/nutegg/issues/new?title=${encodeURIComponent(
+      title
+    )}&body=${encodeURIComponent(body)}`;
+    window.open(issueUrl, "_blank");
   }
   async onunload() {
     await this.server.stop();
