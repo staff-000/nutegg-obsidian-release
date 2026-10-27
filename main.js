@@ -3309,7 +3309,7 @@ var require_stream = __commonJS({
       };
       duplex._final = function(callback) {
         if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open() {
+          ws.once("open", function open2() {
             duplex._final(callback);
           });
           return;
@@ -3333,7 +3333,7 @@ var require_stream = __commonJS({
       };
       duplex._write = function(chunk, encoding, callback) {
         if (ws.readyState === ws.CONNECTING) {
-          ws.once("open", function open() {
+          ws.once("open", function open2() {
             duplex._write(chunk, encoding, callback);
           });
           return;
@@ -4785,7 +4785,7 @@ function prepareCall(model, input, {
   const p = normalize(input, format), limit = p.limit ?? Math.min(1024, model.limits?.output || 1024), protocol = connection.protocol, base = url.href.replace(/\/$/, "");
   if (p.top_k !== void 0 && ![ApiProtocol.Claude, ApiProtocol.Gemini, ApiProtocol.Ollama].includes(protocol))
     fail("top_k is unsupported by this adapter.");
-  let body, path2;
+  let body, path3;
   if (protocol === ApiProtocol.Claude) {
     const m = claudeMessages(p.messages);
     body = {
@@ -4809,7 +4809,7 @@ function prepareCall(model, input, {
         tool_choice: typeof p.choice === "string" ? { type: { auto: "auto", required: "any", none: "none" }[p.choice] } : { type: "tool", name: p.choice.function.name }
       } : {}
     };
-    path2 = "/messages";
+    path3 = "/messages";
   } else if (protocol === ApiProtocol.Gemini) {
     body = {
       ...geminiMessages(p.messages),
@@ -4840,7 +4840,7 @@ function prepareCall(model, input, {
         }
       } : {}
     };
-    path2 = "/models/" + encodeURIComponent(model.apiModelId.replace(/^models\//, "")) + ":generateContent";
+    path3 = "/models/" + encodeURIComponent(model.apiModelId.replace(/^models\//, "")) + ":generateContent";
   } else if (protocol === ApiProtocol.Ollama) {
     const names = new Map(
       p.messages.flatMap((m) => (m.tool_calls || []).map((t2) => [t2.id, t2.function.name]))
@@ -4869,7 +4869,7 @@ function prepareCall(model, input, {
       },
       ...p.tools ? { tools: p.tools } : {}
     };
-    path2 = "/api/chat";
+    path3 = "/api/chat";
   } else {
     body = {
       model: model.apiModelId,
@@ -4883,7 +4883,7 @@ function prepareCall(model, input, {
       ...p.choice ? { tool_choice: p.choice } : {},
       ...model.providerId === "openai" ? { store: false } : {}
     };
-    path2 = "/chat/completions";
+    path3 = "/chat/completions";
   }
   let diagnostics = [];
   if (shouldCheck) {
@@ -4907,7 +4907,7 @@ function prepareCall(model, input, {
         diagnostics
       );
   }
-  return { url: base + path2, body, protocol, diagnostics };
+  return { url: base + path3, body, protocol, diagnostics };
 }
 function parsed(data, protocol, model) {
   if (!obj(data) || data.error || data.status === "failed")
@@ -5092,7 +5092,7 @@ async function execute(model, input, key, options2, format) {
     if (request2.protocol === ApiProtocol.Claude) {
       headers["x-api-key"] = key;
       headers["anthropic-version"] = "2023-06-01";
-      if (typeof window !== "undefined")
+      if (typeof window !== "undefined" || typeof importScripts === "function" || typeof WorkerGlobalScope !== "undefined" && globalThis instanceof WorkerGlobalScope)
         headers["anthropic-dangerous-direct-browser-access"] = "true";
     } else if (request2.protocol === ApiProtocol.Gemini)
       headers["x-goog-api-key"] = key;
@@ -5687,60 +5687,11 @@ async function trackAIRequest(prompt, request2, scope, options2 = {}) {
   }
 }
 
-// ../shared/src/generated-models.mjs
-var GENERATED_PROVIDERS = [
-  {
-    "id": "local",
-    "label": "Local",
-    "connection": {
-      "baseUrl": "",
-      "protocol": "openai-compatible"
-    }
-  },
-  {
-    "id": "anthropic",
-    "label": "Anthropic",
-    "connection": {
-      "baseUrl": "https://api.anthropic.com/v1",
-      "protocol": "claude"
-    }
-  },
-  {
-    "id": "deepseek",
-    "label": "DeepSeek",
-    "connection": {
-      "baseUrl": "https://api.deepseek.com/v1",
-      "protocol": "openai-compatible"
-    }
-  },
-  {
-    "id": "google",
-    "label": "Google",
-    "connection": {
-      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
-      "protocol": "gemini"
-    }
-  },
-  {
-    "id": "openai",
-    "label": "OpenAI",
-    "connection": {
-      "baseUrl": "https://api.openai.com/v1",
-      "protocol": "openai-compatible"
-    }
-  },
-  {
-    "id": "openrouter",
-    "label": "OpenRouter",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    }
-  }
-];
-var GENERATED_MODELS = [
+// ../shared/generated/models.mjs
+var models = Object.freeze([
   {
     "id": "anthropic/claude-haiku-5-5",
+    "creatorId": "anthropic",
     "providerId": "anthropic",
     "modelId": "anthropic/claude-haiku-5-5",
     "apiModelId": "claude-haiku-5-5",
@@ -5826,7 +5777,182 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/anthropic/claude-haiku-5.5",
+    "creatorId": "anthropic",
+    "providerId": "openrouter",
+    "modelId": "anthropic/claude-haiku-5-5",
+    "apiModelId": "anthropic/claude-haiku-5.5",
+    "name": "Claude Haiku 5.5",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1e6,
+      "input": null,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
+    "id": "openrouter/~anthropic/claude-haiku-latest",
+    "creatorId": "anthropic",
+    "providerId": "openrouter",
+    "modelId": "openrouter/~anthropic/claude-haiku-latest",
+    "apiModelId": "~anthropic/claude-haiku-latest",
+    "name": "Claude Haiku Latest",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1e6,
+      "input": null,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "anthropic/claude-sonnet-5",
+    "creatorId": "anthropic",
     "providerId": "anthropic",
     "modelId": "anthropic/claude-sonnet-5",
     "apiModelId": "claude-sonnet-5",
@@ -5912,7 +6038,95 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/anthropic/claude-sonnet-5",
+    "creatorId": "anthropic",
+    "providerId": "openrouter",
+    "modelId": "anthropic/claude-sonnet-5",
+    "apiModelId": "anthropic/claude-sonnet-5",
+    "name": "Claude Sonnet 5",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1e6,
+      "input": null,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "anthropic/claude-sonnet-5-5",
+    "creatorId": "anthropic",
     "providerId": "anthropic",
     "modelId": "anthropic/claude-sonnet-5-5",
     "apiModelId": "claude-sonnet-5-5",
@@ -5998,7 +6212,95 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/anthropic/claude-sonnet-5.5",
+    "creatorId": "anthropic",
+    "providerId": "openrouter",
+    "modelId": "anthropic/claude-sonnet-5-5",
+    "apiModelId": "anthropic/claude-sonnet-5.5",
+    "name": "Claude Sonnet 5.5",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1e6,
+      "input": null,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "deepseek/deepseek-chat",
+    "creatorId": "deepseek",
     "providerId": "deepseek",
     "modelId": "deepseek/deepseek-chat",
     "apiModelId": "deepseek-chat",
@@ -6044,7 +6346,264 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/deepseek/deepseek-chat",
+    "creatorId": "deepseek",
+    "providerId": "openrouter",
+    "modelId": "deepseek/deepseek-chat",
+    "apiModelId": "deepseek/deepseek-chat",
+    "name": "DeepSeek Chat",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 163840,
+      "input": null,
+      "output": 16384,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "unsupported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "unknown"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
+    "id": "openrouter/~deepseek/deepseek-flash-latest",
+    "creatorId": "deepseek",
+    "providerId": "openrouter",
+    "modelId": "openrouter/~deepseek/deepseek-flash-latest",
+    "apiModelId": "~deepseek/deepseek-flash-latest",
+    "name": "DeepSeek Flash Latest",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1048576,
+      "input": null,
+      "output": 943718,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
+    "id": "openrouter/deepseek/deepseek-v3.2",
+    "creatorId": "deepseek",
+    "providerId": "openrouter",
+    "modelId": "deepseek/deepseek-v3.2",
+    "apiModelId": "deepseek/deepseek-v3.2",
+    "name": "DeepSeek V3.2",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 163840,
+      "input": null,
+      "output": 65536,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "supported"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "unknown"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "deepseek/deepseek-flash",
+    "creatorId": "deepseek",
     "providerId": "deepseek",
     "modelId": "deepseek/deepseek-v4.1-flash",
     "apiModelId": "deepseek-flash",
@@ -6129,7 +6688,94 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/deepseek/deepseek-v4.1-flash",
+    "creatorId": "deepseek",
+    "providerId": "openrouter",
+    "modelId": "deepseek/deepseek-v4.1-flash",
+    "apiModelId": "deepseek/deepseek-v4.1-flash",
+    "name": "DeepSeek V4.1 Flash",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1048576,
+      "input": null,
+      "output": 393216,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "google/gemini-3.7-flash",
+    "creatorId": "google",
     "providerId": "google",
     "modelId": "google/gemini-3.7-flash",
     "apiModelId": "gemini-3.7-flash",
@@ -6217,866 +6863,8 @@ var GENERATED_MODELS = [
     }
   },
   {
-    "id": "google/gemini-3.8-flash",
-    "providerId": "google",
-    "modelId": "google/gemini-3.8-flash",
-    "apiModelId": "gemini-3.8-flash",
-    "name": "Gemini 3.8 Flash",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
-      "protocol": "gemini"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 1048576,
-      "input": null,
-      "output": 65536,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "video",
-        "audio",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "flash",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "google",
-      "name": "Google",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openai/gpt-5.6-luna",
-    "providerId": "openai",
-    "modelId": "openai/gpt-5.6-luna",
-    "apiModelId": "gpt-5.6-luna",
-    "name": "GPT-5.6 Luna",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://api.openai.com/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 105e4,
-      "input": 922e3,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "flash",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openai",
-      "name": "OpenAI",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openai/gpt-6-luna",
-    "providerId": "openai",
-    "modelId": "openai/gpt-6-luna",
-    "apiModelId": "gpt-6-luna",
-    "name": "GPT-6 Luna",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://api.openai.com/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 105e4,
-      "input": 922e3,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "flash",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openai",
-      "name": "OpenAI",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openai/gpt-6-sol",
-    "providerId": "openai",
-    "modelId": "openai/gpt-6-sol",
-    "apiModelId": "gpt-6-sol",
-    "name": "GPT-6 Sol",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://api.openai.com/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 105e4,
-      "input": 922e3,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "workhorse",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openai",
-      "name": "OpenAI",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openai/gpt-6.1-sol",
-    "providerId": "openai",
-    "modelId": "openai/gpt-6.1-sol",
-    "apiModelId": "gpt-6.1-sol",
-    "name": "GPT-6.1 Sol",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://api.openai.com/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 105e4,
-      "input": 922e3,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "workhorse",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openai",
-      "name": "OpenAI",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openrouter/anthropic/claude-haiku-5.5",
-    "providerId": "openrouter",
-    "modelId": "anthropic/claude-haiku-5-5",
-    "apiModelId": "anthropic/claude-haiku-5.5",
-    "name": "Claude Haiku 5.5",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 1e6,
-      "input": null,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "flash",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openrouter/anthropic/claude-sonnet-5",
-    "providerId": "openrouter",
-    "modelId": "anthropic/claude-sonnet-5",
-    "apiModelId": "anthropic/claude-sonnet-5",
-    "name": "Claude Sonnet 5",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 1e6,
-      "input": null,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "workhorse",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openrouter/anthropic/claude-sonnet-5.5",
-    "providerId": "openrouter",
-    "modelId": "anthropic/claude-sonnet-5-5",
-    "apiModelId": "anthropic/claude-sonnet-5.5",
-    "name": "Claude Sonnet 5.5",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 1e6,
-      "input": null,
-      "output": 128e3,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image",
-        "pdf"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "workhorse",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openrouter/deepseek/deepseek-chat",
-    "providerId": "openrouter",
-    "modelId": "deepseek/deepseek-chat",
-    "apiModelId": "deepseek/deepseek-chat",
-    "name": "DeepSeek Chat",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 163840,
-      "input": null,
-      "output": 16384,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "workhorse",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "unsupported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "unknown"
-      }
-    },
-    "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
-    "id": "openrouter/deepseek/deepseek-v4.1-flash",
-    "providerId": "openrouter",
-    "modelId": "deepseek/deepseek-v4.1-flash",
-    "apiModelId": "deepseek/deepseek-v4.1-flash",
-    "name": "DeepSeek V4.1 Flash",
-    "deployment": "hosted",
-    "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
-      "protocol": "openai-compatible"
-    },
-    "callSupport": {
-      "textGeneration": true,
-      "reason": null
-    },
-    "limits": {
-      "context": 1048576,
-      "input": null,
-      "output": 393216,
-      "contextAccounting": "unknown"
-    },
-    "modalities": {
-      "input": [
-        "text",
-        "image"
-      ],
-      "output": [
-        "text"
-      ]
-    },
-    "status": "unknown",
-    "requiresProviderOverride": false,
-    "speciality": "general",
-    "tier": "flash",
-    "features": {
-      "functionCalling": {
-        "status": "supported"
-      },
-      "parallelTools": {
-        "status": "unknown"
-      },
-      "forcedToolChoice": {
-        "status": "unknown"
-      },
-      "strictToolSchema": {
-        "status": "unknown"
-      },
-      "promptCaching": {
-        "status": "unknown"
-      },
-      "jsonMode": {
-        "status": "unknown"
-      },
-      "jsonSchema": {
-        "status": "supported"
-      },
-      "strictJsonSchema": {
-        "status": "unknown"
-      },
-      "systemMessages": {
-        "status": "unknown"
-      },
-      "developerMessages": {
-        "status": "unknown"
-      },
-      "thinking": {
-        "status": "supported"
-      },
-      "thinkingDisable": {
-        "status": "unknown"
-      },
-      "thinkingBudget": {
-        "status": "unknown"
-      },
-      "thinkingEffort": {
-        "status": "supported"
-      }
-    },
-    "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
-      "auth": "required",
-      "deployment": "hosted"
-    }
-  },
-  {
     "id": "openrouter/google/gemini-3.7-flash",
+    "creatorId": "google",
     "providerId": "openrouter",
     "modelId": "google/gemini-3.7-flash",
     "apiModelId": "google/gemini-3.7-flash",
@@ -7164,7 +6952,97 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "google/gemini-3.8-flash",
+    "creatorId": "google",
+    "providerId": "google",
+    "modelId": "google/gemini-3.8-flash",
+    "apiModelId": "gemini-3.8-flash",
+    "name": "Gemini 3.8 Flash",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
+      "protocol": "gemini"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 1048576,
+      "input": null,
+      "output": 65536,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "video",
+        "audio",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "google",
+      "name": "Google",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "openrouter/google/gemini-3.8-flash",
+    "creatorId": "google",
     "providerId": "openrouter",
     "modelId": "google/gemini-3.8-flash",
     "apiModelId": "google/gemini-3.8-flash",
@@ -7252,14 +7130,15 @@ var GENERATED_MODELS = [
     }
   },
   {
-    "id": "openrouter/openai/gpt-5.6-luna",
-    "providerId": "openrouter",
-    "modelId": "openai/gpt-5.6-luna",
-    "apiModelId": "openai/gpt-5.6-luna",
-    "name": "GPT-5.6 Luna",
+    "id": "openai/gpt-6-luna",
+    "creatorId": "openai",
+    "providerId": "openai",
+    "modelId": "openai/gpt-6-luna",
+    "apiModelId": "gpt-6-luna",
+    "name": "GPT-6 Luna",
     "deployment": "hosted",
     "connection": {
-      "baseUrl": "https://openrouter.ai/api/v1",
+      "baseUrl": "https://api.openai.com/v1",
       "protocol": "openai-compatible"
     },
     "callSupport": {
@@ -7331,14 +7210,15 @@ var GENERATED_MODELS = [
       }
     },
     "provider": {
-      "id": "openrouter",
-      "name": "OpenRouter",
+      "id": "openai",
+      "name": "OpenAI",
       "auth": "required",
       "deployment": "hosted"
     }
   },
   {
     "id": "openrouter/openai/gpt-6-luna",
+    "creatorId": "openai",
     "providerId": "openrouter",
     "modelId": "openai/gpt-6-luna",
     "apiModelId": "openai/gpt-6-luna",
@@ -7424,7 +7304,182 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openrouter/openai/gpt-6-luna-pro",
+    "creatorId": "openai",
+    "providerId": "openrouter",
+    "modelId": "openrouter/openai/gpt-6-luna-pro",
+    "apiModelId": "openai/gpt-6-luna-pro",
+    "name": "GPT-6 Luna Pro",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 105e4,
+      "input": null,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "pdf",
+        "image",
+        "text"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "flash",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
+    "id": "openai/gpt-6-sol",
+    "creatorId": "openai",
+    "providerId": "openai",
+    "modelId": "openai/gpt-6-sol",
+    "apiModelId": "gpt-6-sol",
+    "name": "GPT-6 Sol",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://api.openai.com/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 105e4,
+      "input": 922e3,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "openrouter/openai/gpt-6-sol",
+    "creatorId": "openai",
     "providerId": "openrouter",
     "modelId": "openai/gpt-6-sol",
     "apiModelId": "openai/gpt-6-sol",
@@ -7510,7 +7565,95 @@ var GENERATED_MODELS = [
     }
   },
   {
+    "id": "openai/gpt-6.1-sol",
+    "creatorId": "openai",
+    "providerId": "openai",
+    "modelId": "openai/gpt-6.1-sol",
+    "apiModelId": "gpt-6.1-sol",
+    "name": "GPT-6.1 Sol",
+    "deployment": "hosted",
+    "connection": {
+      "baseUrl": "https://api.openai.com/v1",
+      "protocol": "openai-compatible"
+    },
+    "callSupport": {
+      "textGeneration": true,
+      "reason": null
+    },
+    "limits": {
+      "context": 105e4,
+      "input": 922e3,
+      "output": 128e3,
+      "contextAccounting": "unknown"
+    },
+    "modalities": {
+      "input": [
+        "text",
+        "image",
+        "pdf"
+      ],
+      "output": [
+        "text"
+      ]
+    },
+    "status": "unknown",
+    "requiresProviderOverride": false,
+    "speciality": "general",
+    "tier": "workhorse",
+    "features": {
+      "functionCalling": {
+        "status": "supported"
+      },
+      "parallelTools": {
+        "status": "unknown"
+      },
+      "forcedToolChoice": {
+        "status": "unknown"
+      },
+      "strictToolSchema": {
+        "status": "unknown"
+      },
+      "promptCaching": {
+        "status": "unknown"
+      },
+      "jsonMode": {
+        "status": "unknown"
+      },
+      "jsonSchema": {
+        "status": "supported"
+      },
+      "strictJsonSchema": {
+        "status": "unknown"
+      },
+      "systemMessages": {
+        "status": "unknown"
+      },
+      "developerMessages": {
+        "status": "unknown"
+      },
+      "thinking": {
+        "status": "supported"
+      },
+      "thinkingDisable": {
+        "status": "unknown"
+      },
+      "thinkingBudget": {
+        "status": "unknown"
+      },
+      "thinkingEffort": {
+        "status": "supported"
+      }
+    },
+    "provider": {
+      "id": "openai",
+      "name": "OpenAI",
+      "auth": "required",
+      "deployment": "hosted"
+    }
+  },
+  {
     "id": "openrouter/openai/gpt-6.1-sol",
+    "creatorId": "openai",
     "providerId": "openrouter",
     "modelId": "openai/gpt-6.1-sol",
     "apiModelId": "openai/gpt-6.1-sol",
@@ -7595,9 +7738,25 @@ var GENERATED_MODELS = [
       "deployment": "hosted"
     }
   }
-];
+]);
+function getModelsByProvider() {
+  const grouped = {};
+  for (const m of models) {
+    const key = m.provider?.id || m.providerId || (m.local ? "local" : "unknown");
+    if (!grouped[key])
+      grouped[key] = [];
+    grouped[key].push(structuredClone(m));
+  }
+  return grouped;
+}
+var OfferingId = Object.freeze({ "anthropic/claude-haiku-5-5": "anthropic/claude-haiku-5-5", "openrouter/anthropic/claude-haiku-5.5": "openrouter/anthropic/claude-haiku-5.5", "openrouter/~anthropic/claude-haiku-latest": "openrouter/~anthropic/claude-haiku-latest", "anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-5": "openrouter/anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5-5": "anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-sonnet-5.5": "openrouter/anthropic/claude-sonnet-5.5", "deepseek/deepseek-chat": "deepseek/deepseek-chat", "openrouter/deepseek/deepseek-chat": "openrouter/deepseek/deepseek-chat", "openrouter/~deepseek/deepseek-flash-latest": "openrouter/~deepseek/deepseek-flash-latest", "openrouter/deepseek/deepseek-v3.2": "openrouter/deepseek/deepseek-v3.2", "deepseek/deepseek-flash": "deepseek/deepseek-flash", "openrouter/deepseek/deepseek-v4.1-flash": "openrouter/deepseek/deepseek-v4.1-flash", "google/gemini-3.7-flash": "google/gemini-3.7-flash", "openrouter/google/gemini-3.7-flash": "openrouter/google/gemini-3.7-flash", "google/gemini-3.8-flash": "google/gemini-3.8-flash", "openrouter/google/gemini-3.8-flash": "openrouter/google/gemini-3.8-flash", "openai/gpt-6-luna": "openai/gpt-6-luna", "openrouter/openai/gpt-6-luna": "openrouter/openai/gpt-6-luna", "openrouter/openai/gpt-6-luna-pro": "openrouter/openai/gpt-6-luna-pro", "openai/gpt-6-sol": "openai/gpt-6-sol", "openrouter/openai/gpt-6-sol": "openrouter/openai/gpt-6-sol", "openai/gpt-6.1-sol": "openai/gpt-6.1-sol", "openrouter/openai/gpt-6.1-sol": "openrouter/openai/gpt-6.1-sol" });
+var ModelId = Object.freeze({ "claude-haiku-5-5": "claude-haiku-5-5", "anthropic/claude-haiku-5.5": "anthropic/claude-haiku-5.5", "~anthropic/claude-haiku-latest": "~anthropic/claude-haiku-latest", "claude-sonnet-5": "claude-sonnet-5", "anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5", "claude-sonnet-5-5": "claude-sonnet-5-5", "anthropic/claude-sonnet-5.5": "anthropic/claude-sonnet-5.5", "deepseek-chat": "deepseek-chat", "deepseek/deepseek-chat": "deepseek/deepseek-chat", "~deepseek/deepseek-flash-latest": "~deepseek/deepseek-flash-latest", "deepseek/deepseek-v3.2": "deepseek/deepseek-v3.2", "deepseek-flash": "deepseek-flash", "deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash", "gemini-3.7-flash": "gemini-3.7-flash", "google/gemini-3.7-flash": "google/gemini-3.7-flash", "gemini-3.8-flash": "gemini-3.8-flash", "google/gemini-3.8-flash": "google/gemini-3.8-flash", "gpt-6-luna": "gpt-6-luna", "openai/gpt-6-luna": "openai/gpt-6-luna", "openai/gpt-6-luna-pro": "openai/gpt-6-luna-pro", "gpt-6-sol": "gpt-6-sol", "openai/gpt-6-sol": "openai/gpt-6-sol", "gpt-6.1-sol": "gpt-6.1-sol", "openai/gpt-6.1-sol": "openai/gpt-6.1-sol" });
+var FunctionCallingOfferingId = Object.freeze({ "anthropic/claude-haiku-5-5": "anthropic/claude-haiku-5-5", "openrouter/anthropic/claude-haiku-5.5": "openrouter/anthropic/claude-haiku-5.5", "openrouter/~anthropic/claude-haiku-latest": "openrouter/~anthropic/claude-haiku-latest", "anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-5": "openrouter/anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5-5": "anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-sonnet-5.5": "openrouter/anthropic/claude-sonnet-5.5", "deepseek/deepseek-chat": "deepseek/deepseek-chat", "openrouter/deepseek/deepseek-chat": "openrouter/deepseek/deepseek-chat", "openrouter/~deepseek/deepseek-flash-latest": "openrouter/~deepseek/deepseek-flash-latest", "openrouter/deepseek/deepseek-v3.2": "openrouter/deepseek/deepseek-v3.2", "deepseek/deepseek-flash": "deepseek/deepseek-flash", "openrouter/deepseek/deepseek-v4.1-flash": "openrouter/deepseek/deepseek-v4.1-flash", "google/gemini-3.7-flash": "google/gemini-3.7-flash", "openrouter/google/gemini-3.7-flash": "openrouter/google/gemini-3.7-flash", "google/gemini-3.8-flash": "google/gemini-3.8-flash", "openrouter/google/gemini-3.8-flash": "openrouter/google/gemini-3.8-flash", "openai/gpt-6-luna": "openai/gpt-6-luna", "openrouter/openai/gpt-6-luna": "openrouter/openai/gpt-6-luna", "openrouter/openai/gpt-6-luna-pro": "openrouter/openai/gpt-6-luna-pro", "openai/gpt-6-sol": "openai/gpt-6-sol", "openrouter/openai/gpt-6-sol": "openrouter/openai/gpt-6-sol", "openai/gpt-6.1-sol": "openai/gpt-6.1-sol", "openrouter/openai/gpt-6.1-sol": "openrouter/openai/gpt-6.1-sol" });
+var StrictJsonSchemaOfferingId = Object.freeze({});
+var ThinkingOfferingId = Object.freeze({ "anthropic/claude-haiku-5-5": "anthropic/claude-haiku-5-5", "openrouter/anthropic/claude-haiku-5.5": "openrouter/anthropic/claude-haiku-5.5", "openrouter/~anthropic/claude-haiku-latest": "openrouter/~anthropic/claude-haiku-latest", "anthropic/claude-sonnet-5": "anthropic/claude-sonnet-5", "openrouter/anthropic/claude-sonnet-5": "openrouter/anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5-5": "anthropic/claude-sonnet-5-5", "openrouter/anthropic/claude-sonnet-5.5": "openrouter/anthropic/claude-sonnet-5.5", "openrouter/~deepseek/deepseek-flash-latest": "openrouter/~deepseek/deepseek-flash-latest", "openrouter/deepseek/deepseek-v3.2": "openrouter/deepseek/deepseek-v3.2", "deepseek/deepseek-flash": "deepseek/deepseek-flash", "openrouter/deepseek/deepseek-v4.1-flash": "openrouter/deepseek/deepseek-v4.1-flash", "google/gemini-3.7-flash": "google/gemini-3.7-flash", "openrouter/google/gemini-3.7-flash": "openrouter/google/gemini-3.7-flash", "google/gemini-3.8-flash": "google/gemini-3.8-flash", "openrouter/google/gemini-3.8-flash": "openrouter/google/gemini-3.8-flash", "openai/gpt-6-luna": "openai/gpt-6-luna", "openrouter/openai/gpt-6-luna": "openrouter/openai/gpt-6-luna", "openrouter/openai/gpt-6-luna-pro": "openrouter/openai/gpt-6-luna-pro", "openai/gpt-6-sol": "openai/gpt-6-sol", "openrouter/openai/gpt-6-sol": "openrouter/openai/gpt-6-sol", "openai/gpt-6.1-sol": "openai/gpt-6.1-sol", "openrouter/openai/gpt-6.1-sol": "openrouter/openai/gpt-6.1-sol" });
 
 // ../shared/src/catalog.ts
+var modelsByProvider = getModelsByProvider();
 function aiConnectionLabel(provider, method) {
   if (method === "chatgpt")
     return "ChatGPT sign-in";
@@ -7607,31 +7766,22 @@ function aiConnectionLabel(provider, method) {
     return "Claude";
   return PROVIDER_CATALOG[provider]?.label || provider || "";
 }
-function modelChoices(models) {
+function modelChoices(models2) {
   return {
-    models: models.map((model) => model.apiModelId),
-    defaultModel: (models.find((model) => model.tier === "flash") || models[0])?.apiModelId
+    models: models2.map((model) => model.apiModelId),
+    defaultModel: (models2.find((model) => model.tier === "flash") || models2[0])?.apiModelId
   };
 }
-var providers = GENERATED_PROVIDERS.map((provider) => ({
-  id: provider.id,
-  label: provider.label,
-  connection: provider.connection,
-  ...provider.id === "local" ? {} : modelChoices(GENERATED_MODELS.filter((model) => model.providerId === provider.id))
-}));
-var routerModels = GENERATED_MODELS.filter((model) => model.providerId === "openrouter");
-var OPENROUTER_FAMILIES = providers.flatMap((provider) => {
-  if (provider.id === "local" || provider.id === "openrouter")
-    return [];
-  const choices = modelChoices(routerModels.filter((model) => model.modelId.startsWith(provider.id + "/")));
-  return choices.defaultModel ? [{ id: provider.id, label: provider.label, ...choices, defaultModel: choices.defaultModel }] : [];
-});
-var routerChoices = modelChoices(routerModels);
-OPENROUTER_FAMILIES.push({ id: "custom", label: "Custom OpenRouter Model", models: [], defaultModel: routerChoices.defaultModel });
-var PROVIDER_CATALOG = Object.fromEntries(providers.map((provider) => [
-  provider.id,
-  provider.id === "openrouter" ? { ...provider, families: OPENROUTER_FAMILIES } : provider
-]));
+var providers = [
+  { id: ProviderId.Local, label: "Local", connection: resolveLocalEndpoint({}) },
+  ...Object.values(modelsByProvider).map((models2) => ({
+    id: models2[0].providerId,
+    label: models2[0].provider.name,
+    connection: models2[0].connection,
+    ...modelChoices(models2)
+  }))
+];
+var PROVIDER_CATALOG = Object.fromEntries(providers.map((provider) => [provider.id, provider]));
 function resolveLocalEndpoint(settings) {
   const raw = (settings.chromeAiEndpoint || settings.localEndpoint || settings.aiEndpoint || "http://127.0.0.1:11434/v1").trim();
   const connection = validateClientConfig({
@@ -7702,7 +7852,7 @@ function resolveConfig(settings) {
       apiKey,
       baseURL: connection.baseUrl,
       protocol: connection.protocol,
-      models: GENERATED_MODELS.filter((offering) => offering.providerId === provider && offering.apiModelId === model),
+      models: (modelsByProvider[provider] || []).filter((offering) => offering.apiModelId === model),
       ...provider === "openrouter" ? { defaultHeaders: {
         "HTTP-Referer": "https://github.com/nutegg",
         "X-Title": "NutEgg"
@@ -8000,6 +8150,8 @@ function localizeCreditInfo(info, translate) {
 
 // src/i18n/en.ts
 var en = {
+  subscriptionLocalAccessHint: "CLI connections run your installed provider locally and create temporary files. Only requested content is sent to that provider.",
+  chatgptLocalStorageHint: "Sign-in credentials are protected in local application storage outside your vault and are not included in Chrome messages or exports.",
   chatgptInvalidSignInCallback: "Invalid sign-in callback.",
   chatgptInvalidCallback: "Invalid callback.",
   chatgptRequestCancelled: "ChatGPT request cancelled.",
@@ -8110,6 +8262,7 @@ var en = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "Startup diagnostic: {code}. Include this code when reporting the issue.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -8158,16 +8311,7 @@ var en = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "Disable subscription mode",
-  subscriptionEnabledTitle: "Subscription mode enabled",
-  subscriptionDisabledTitle: "Subscription mode disabled",
-  subscriptionEnableInstructions: "In Obsidian Settings \u2192 NutEgg, enable \u201CSubscription mode\u201D. You can also use the Command Palette (Cmd/Ctrl+P).",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "Subscription mode",
-  subscriptionModeSettingDesc: "Use local Claude, Codex, or Gemini CLI subscription instead of API key.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -8224,8 +8368,6 @@ var en = {
   localEndpointOpenAiDesc: "OpenAI-compatible chat completions URL for your local runner",
   localPresets: "Presets: ",
   localApiKeyDesc: "Optional for local LLMs. Leave empty if your local server does not require authentication.",
-  aiModelFamily: "2. Model Family",
-  aiModelFamilyDesc: "Choose model vendor or architecture group on OpenRouter",
   modelVersion: "3. Model Version",
   modelVersionDesc: 'Sent to OpenRouter as "{model}"',
   aiModel: "2. Model",
@@ -8335,6 +8477,8 @@ var en = {
 
 // src/i18n/zh.ts
 var zh = {
+  subscriptionLocalAccessHint: "CLI \u8FDE\u63A5\u4F1A\u5728\u672C\u673A\u8FD0\u884C\u5DF2\u5B89\u88C5\u7684\u63D0\u4F9B\u5546\u7A0B\u5E8F\u5E76\u521B\u5EFA\u4E34\u65F6\u6587\u4EF6\uFF0C\u4EC5\u5C06\u8BF7\u6C42\u7684\u5185\u5BB9\u53D1\u9001\u7ED9\u8BE5\u63D0\u4F9B\u5546\u3002",
+  chatgptLocalStorageHint: "\u767B\u5F55\u51ED\u636E\u53D7\u4FDD\u62A4\u5730\u5B58\u50A8\u5728\u4ED3\u5E93\u4E4B\u5916\u7684\u672C\u673A\u5E94\u7528\u76EE\u5F55\u4E2D\uFF0C\u4E0D\u4F1A\u5305\u542B\u5728 Chrome \u6D88\u606F\u6216\u5BFC\u51FA\u5185\u5BB9\u4E2D\u3002",
   chatgptInvalidSignInCallback: "\u767B\u5F55\u56DE\u8C03\u65E0\u6548\u3002",
   chatgptInvalidCallback: "\u56DE\u8C03\u65E0\u6548\u3002",
   chatgptRequestCancelled: "ChatGPT \u8BF7\u6C42\u5DF2\u53D6\u6D88\u3002",
@@ -8445,6 +8589,7 @@ var zh = {
   chatgptModel: "ChatGPT \u6A21\u578B",
   chatgptRequiresObsidian: "ChatGPT \u767B\u5F55\u9700\u8981\u8FDE\u63A5 Obsidian\u3002\u8BF7\u4FDD\u6301 Obsidian \u8FD0\u884C\u3002",
   chatgptTokenHint: "ChatGPT \u767B\u5F55\u6A21\u5F0F\u4E0D\u652F\u6301 API \u8F93\u51FA\u4EE4\u724C\u4E0A\u9650\u3002",
+  chatgptStartupDiagnostic: "\u542F\u52A8\u8BCA\u65AD\uFF1A{code}\u3002\u53CD\u9988\u95EE\u9898\u65F6\u8BF7\u9644\u4E0A\u6B64\u4EE3\u7801\u3002",
   chatgptStorageUnavailable: "ChatGPT \u767B\u5F55\u4E0D\u53EF\u7528\u3002\u8BF7\u68C0\u67E5\u672C\u5730\u51ED\u636E\u5B58\u50A8\u6216\u5176\u4ED6\u6B63\u5728\u8FD0\u884C\u7684 Obsidian \u5B9E\u4F8B\u3002",
   chatgptState_signed_out: "\u5C1A\u672A\u767B\u5F55",
   chatgptState_signing_in: "\u6B63\u5728\u767B\u5F55\u2026",
@@ -8493,16 +8638,7 @@ var zh = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "\u767B\u5F55\u6B64\u8FDE\u63A5\u5E76\u9009\u62E9\u6A21\u578B\u3002Obsidian \u548C\u5DF2\u8FDE\u63A5\u7684 Chrome \u4F7F\u7528\u6240\u9009\u8FDE\u63A5\u3002API \u5BC6\u94A5\u8BF7\u5728 Chrome \u8BBE\u7F6E\u4E2D\u914D\u7F6E\u3002",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "\u505C\u7528\u8BA2\u9605\u6A21\u5F0F",
-  subscriptionEnabledTitle: "\u5DF2\u542F\u7528\u8BA2\u9605\u6A21\u5F0F",
-  subscriptionDisabledTitle: "\u5DF2\u505C\u7528\u8BA2\u9605\u6A21\u5F0F",
-  subscriptionEnableInstructions: "\u5728 Obsidian \u8BBE\u7F6E \u2192 NutEgg \u4E2D\u5F00\u542F\u201C\u8BA2\u9605\u6A21\u5F0F\u201D\u3002\u4E5F\u53EF\u4EE5\u4F7F\u7528\u547D\u4EE4\u9762\u677F\uFF08Cmd/Ctrl+P\uFF09\u3002",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "\u8BA2\u9605\u6A21\u5F0F",
-  subscriptionModeSettingDesc: "\u4F7F\u7528\u672C\u5730 Claude\u3001Codex \u6216 Gemini CLI \u8BA2\u9605\uFF0C\u65E0\u9700\u914D\u7F6E API \u5BC6\u94A5\u3002",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -8559,8 +8695,6 @@ var zh = {
   localEndpointOpenAiDesc: "\u672C\u5730\u517C\u5BB9 OpenAI \u683C\u5F0F\u7684 chat completions \u63A5\u53E3\u5730\u5740",
   localPresets: "\u5FEB\u901F\u9884\u8BBE\uFF1A ",
   localApiKeyDesc: "\u672C\u5730\u6A21\u578B\u53EF\u9009\u3002\u82E5\u672C\u5730\u6A21\u578B\u670D\u52A1\u4E0D\u9700\u8981\u8EAB\u4EFD\u9A8C\u8BC1\uFF0C\u8BF7\u7559\u7A7A\u3002",
-  aiModelFamily: "2. \u6A21\u578B\u5BB6\u65CF",
-  aiModelFamilyDesc: "\u9009\u62E9 OpenRouter \u4E0A\u53EF\u7528\u7684 AI \u5382\u5546\u6216\u6A21\u578B\u7C7B\u522B",
   modelVersion: "3. \u6A21\u578B\u7248\u672C",
   modelVersionDesc: '\u8BF7\u6C42\u5C06\u4EE5 "{model}" \u53D1\u9001\u7ED9 OpenRouter',
   aiModel: "2. \u6A21\u578B",
@@ -8670,6 +8804,8 @@ var zh = {
 
 // src/i18n/es.ts
 var es = {
+  subscriptionLocalAccessHint: "Las conexiones CLI ejecutan el proveedor instalado localmente y crean archivos temporales. Solo el contenido solicitado se env\xEDa al proveedor.",
+  chatgptLocalStorageHint: "Las credenciales se protegen en el almacenamiento local de la aplicaci\xF3n fuera de la b\xF3veda y no se incluyen en mensajes de Chrome ni exportaciones.",
   chatgptInvalidSignInCallback: "Respuesta de inicio de sesi\xF3n no v\xE1lida.",
   chatgptInvalidCallback: "Respuesta de retorno no v\xE1lida.",
   chatgptRequestCancelled: "Solicitud de ChatGPT cancelada.",
@@ -8780,6 +8916,7 @@ var es = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "Diagn\xF3stico de inicio: {code}. Incluye este c\xF3digo al informar del problema.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -8828,16 +8965,7 @@ var es = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "Desactivar modo de suscripci\xF3n",
-  subscriptionEnabledTitle: "Modo de suscripci\xF3n activado",
-  subscriptionDisabledTitle: "Modo de suscripci\xF3n desactivado",
-  subscriptionEnableInstructions: "En Ajustes de Obsidian \u2192 NutEgg, activa el \xABModo de suscripci\xF3n\xBB.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "Modo de suscripci\xF3n",
-  subscriptionModeSettingDesc: "Usar la suscripci\xF3n local de Claude, Codex o Gemini CLI en lugar de la clave API.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -8893,8 +9021,6 @@ var es = {
   localEndpointOpenAiDesc: "URL de chat completions compatible con OpenAI para tu ejecutor local",
   localPresets: "Preajustes: ",
   localApiKeyDesc: "Opcional para LLMs locales. Dejar vac\xEDo si tu servidor local no requiere autenticaci\xF3n.",
-  aiModelFamily: "2. Familia del modelo",
-  aiModelFamilyDesc: "Elige el proveedor del modelo o grupo de arquitectura en OpenRouter",
   modelVersion: "3. Versi\xF3n del modelo",
   modelVersionDesc: 'Enviado a OpenRouter como "{model}"',
   aiModel: "2. Modelo",
@@ -9001,6 +9127,8 @@ var es = {
 
 // src/i18n/ja.ts
 var ja = {
+  subscriptionLocalAccessHint: "CLI \u63A5\u7D9A\u306F\u30A4\u30F3\u30B9\u30C8\u30FC\u30EB\u6E08\u307F\u306E\u30D7\u30ED\u30D0\u30A4\u30C0\u30FC\u3092\u30ED\u30FC\u30AB\u30EB\u3067\u5B9F\u884C\u3057\u3001\u4E00\u6642\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210\u3057\u307E\u3059\u3002\u8981\u6C42\u3055\u308C\u305F\u5185\u5BB9\u306E\u307F\u3092\u30D7\u30ED\u30D0\u30A4\u30C0\u30FC\u306B\u9001\u4FE1\u3057\u307E\u3059\u3002",
+  chatgptLocalStorageHint: "\u8A8D\u8A3C\u60C5\u5831\u306F\u4FDD\u7BA1\u5EAB\u306E\u5916\u306E\u30ED\u30FC\u30AB\u30EB\u30A2\u30D7\u30EA\u9818\u57DF\u3067\u4FDD\u8B77\u3055\u308C\u3001Chrome \u30E1\u30C3\u30BB\u30FC\u30B8\u3084\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u306B\u306F\u542B\u307E\u308C\u307E\u305B\u3093\u3002",
   chatgptInvalidSignInCallback: "\u30ED\u30B0\u30A4\u30F3\u306E\u5FDC\u7B54\u304C\u7121\u52B9\u3067\u3059\u3002",
   chatgptInvalidCallback: "\u30B3\u30FC\u30EB\u30D0\u30C3\u30AF\u304C\u7121\u52B9\u3067\u3059\u3002",
   chatgptRequestCancelled: "ChatGPT \u306E\u30EA\u30AF\u30A8\u30B9\u30C8\u3092\u30AD\u30E3\u30F3\u30BB\u30EB\u3057\u307E\u3057\u305F\u3002",
@@ -9111,6 +9239,7 @@ var ja = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "\u8D77\u52D5\u6642\u306E\u8A3A\u65AD\u30B3\u30FC\u30C9\uFF1A{code}\u3002\u554F\u984C\u3092\u5831\u544A\u3059\u308B\u969B\u306F\u3001\u3053\u306E\u30B3\u30FC\u30C9\u3092\u6DFB\u3048\u3066\u304F\u3060\u3055\u3044\u3002",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -9159,16 +9288,7 @@ var ja = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u30E2\u30FC\u30C9\u3092\u7121\u52B9\u5316",
-  subscriptionEnabledTitle: "\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u30E2\u30FC\u30C9\u6709\u52B9",
-  subscriptionDisabledTitle: "\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u30E2\u30FC\u30C9\u7121\u52B9",
-  subscriptionEnableInstructions: "Obsidian \u8A2D\u5B9A \u2192 NutEgg \u3067\u300C\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u30E2\u30FC\u30C9\u300D\u3092\u6709\u52B9\u306B\u3057\u307E\u3059\u3002\u30B3\u30DE\u30F3\u30C9\u30D1\u30EC\u30C3\u30C8\uFF08Cmd/Ctrl+P\uFF09\u3067\u3082\u5B9F\u884C\u3067\u304D\u307E\u3059\u3002",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u30E2\u30FC\u30C9",
-  subscriptionModeSettingDesc: "API\u30AD\u30FC\u306E\u4EE3\u308F\u308A\u306B\u30ED\u30FC\u30AB\u30EB\u306EClaude\u3001Codex\u3001\u307E\u305F\u306FGemini CLI\u30B5\u30D6\u30B9\u30AF\u30EA\u30D7\u30B7\u30E7\u30F3\u3092\u4F7F\u7528\u3057\u307E\u3059\u3002",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -9224,8 +9344,6 @@ var ja = {
   localEndpointOpenAiDesc: "\u30ED\u30FC\u30AB\u30EB\u74B0\u5883\u306EOpenAI\u4E92\u63DB\u30C1\u30E3\u30C3\u30C8URL",
   localPresets: "\u30D7\u30EA\u30BB\u30C3\u30C8: ",
   localApiKeyDesc: "\u30ED\u30FC\u30AB\u30EBLLM\u7528\uFF08\u4EFB\u610F\uFF09\u3002\u8A8D\u8A3C\u4E0D\u8981\u306E\u5834\u5408\u306F\u7A7A\u6B04\u306B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-  aiModelFamily: "2. \u30E2\u30C7\u30EB\u30D5\u30A1\u30DF\u30EA\u30FC",
-  aiModelFamilyDesc: "OpenRouter\u306E\u30E2\u30C7\u30EB\u30D9\u30F3\u30C0\u30FC\u307E\u305F\u306F\u30A2\u30FC\u30AD\u30C6\u30AF\u30C1\u30E3\u30B0\u30EB\u30FC\u30D7\u3092\u9078\u629E",
   modelVersion: "3. \u30E2\u30C7\u30EB\u30D0\u30FC\u30B8\u30E7\u30F3",
   modelVersionDesc: "OpenRouter\u306B\u300C{model}\u300D\u3068\u3057\u3066\u9001\u4FE1\u3055\u308C\u307E\u3059",
   aiModel: "2. \u30E2\u30C7\u30EB",
@@ -9332,6 +9450,8 @@ var ja = {
 
 // src/i18n/ko.ts
 var ko = {
+  subscriptionLocalAccessHint: "CLI \uC5F0\uACB0\uC740 \uC124\uCE58\uB41C \uC81C\uACF5\uC5C5\uCCB4 \uD504\uB85C\uADF8\uB7A8\uC744 \uB85C\uCEEC\uC5D0\uC11C \uC2E4\uD589\uD558\uACE0 \uC784\uC2DC \uD30C\uC77C\uC744 \uB9CC\uB4ED\uB2C8\uB2E4. \uC694\uCCAD\uD55C \uCF58\uD150\uCE20\uB9CC \uC81C\uACF5\uC5C5\uCCB4\uB85C \uC804\uC1A1\uB429\uB2C8\uB2E4.",
+  chatgptLocalStorageHint: "\uB85C\uADF8\uC778 \uC790\uACA9 \uC99D\uBA85\uC740 \uBCF4\uAD00\uD568 \uC678\uBD80\uC758 \uB85C\uCEEC \uC571 \uC800\uC7A5\uC18C\uC5D0\uC11C \uBCF4\uD638\uB418\uBA70 Chrome \uBA54\uC2DC\uC9C0\uB098 \uB0B4\uBCF4\uB0B4\uAE30\uC5D0 \uD3EC\uD568\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
   chatgptInvalidSignInCallback: "\uC798\uBABB\uB41C \uB85C\uADF8\uC778 \uCF5C\uBC31\uC785\uB2C8\uB2E4.",
   chatgptInvalidCallback: "\uC798\uBABB\uB41C \uCF5C\uBC31\uC785\uB2C8\uB2E4.",
   chatgptRequestCancelled: "ChatGPT \uC694\uCCAD\uC774 \uCDE8\uC18C\uB418\uC5C8\uC2B5\uB2C8\uB2E4.",
@@ -9442,6 +9562,7 @@ var ko = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "\uC2DC\uC791 \uC9C4\uB2E8 \uCF54\uB4DC: {code}. \uBB38\uC81C\uB97C \uBCF4\uACE0\uD560 \uB54C \uC774 \uCF54\uB4DC\uB97C \uD3EC\uD568\uD558\uC138\uC694.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -9490,16 +9611,7 @@ var ko = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "\uAD6C\uB3C5 \uBAA8\uB4DC \uBE44\uD65C\uC131\uD654",
-  subscriptionEnabledTitle: "\uAD6C\uB3C5 \uBAA8\uB4DC \uD65C\uC131\uD654\uB428",
-  subscriptionDisabledTitle: "\uAD6C\uB3C5 \uBAA8\uB4DC \uBE44\uD65C\uC131\uD654\uB428",
-  subscriptionEnableInstructions: "Obsidian \uC124\uC815 \u2192 NutEgg\uC5D0\uC11C '\uAD6C\uB3C5 \uBAA8\uB4DC'\uB97C \uD65C\uC131\uD654\uD558\uC138\uC694.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "\uAD6C\uB3C5 \uBAA8\uB4DC",
-  subscriptionModeSettingDesc: "API \uD0A4 \uB300\uC2E0 \uB85C\uCEEC Claude, Codex \uB610\uB294 Gemini CLI \uAD6C\uB3C5\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -9555,8 +9667,6 @@ var ko = {
   localEndpointOpenAiDesc: "\uB85C\uCEEC \uC2E4\uD589\uAE30\uC6A9 OpenAI \uD638\uD658 \uCC44\uD305 \uC5D4\uB4DC\uD3EC\uC778\uD2B8",
   localPresets: "\uD504\uB9AC\uC14B: ",
   localApiKeyDesc: "\uB85C\uCEEC LLM\uC6A9 (\uC120\uD0DD \uC0AC\uD56D). \uC778\uC99D\uC774 \uD544\uC694 \uC5C6\uB294 \uACBD\uC6B0 \uBE44\uC6CC \uB450\uC138\uC694.",
-  aiModelFamily: "2. \uBAA8\uB378 \uD328\uBC00\uB9AC",
-  aiModelFamilyDesc: "OpenRouter\uC758 \uBAA8\uB378 \uBCA4\uB354 \uB610\uB294 \uC544\uD0A4\uD14D\uCC98 \uADF8\uB8F9 \uC120\uD0DD",
   modelVersion: "3. \uBAA8\uB378 \uBC84\uC804",
   modelVersionDesc: 'OpenRouter\uC5D0 "{model}"\uB85C \uC804\uB2EC\uB429\uB2C8\uB2E4',
   aiModel: "2. \uBAA8\uB378",
@@ -9663,6 +9773,8 @@ var ko = {
 
 // src/i18n/ar.ts
 var ar = {
+  subscriptionLocalAccessHint: "\u062A\u0634\u063A\u0651\u0644 \u0627\u062A\u0635\u0627\u0644\u0627\u062A CLI \u0628\u0631\u0646\u0627\u0645\u062C \u0627\u0644\u0645\u0632\u0648\u0651\u062F \u0627\u0644\u0645\u062B\u0628\u0651\u062A \u0645\u062D\u0644\u064A\u064B\u0627 \u0648\u062A\u064F\u0646\u0634\u0626 \u0645\u0644\u0641\u0627\u062A \u0645\u0624\u0642\u062A\u0629. \u064A\u064F\u0631\u0633\u064E\u0644 \u0627\u0644\u0645\u062D\u062A\u0648\u0649 \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u0641\u0642\u0637 \u0625\u0644\u0649 \u0627\u0644\u0645\u0632\u0648\u0651\u062F.",
+  chatgptLocalStorageHint: "\u062A\u064F\u062D\u0645\u0649 \u0628\u064A\u0627\u0646\u0627\u062A \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u0641\u064A \u062A\u062E\u0632\u064A\u0646 \u0627\u0644\u062A\u0637\u0628\u064A\u0642 \u0627\u0644\u0645\u062D\u0644\u064A \u062E\u0627\u0631\u062C \u0627\u0644\u062E\u0632\u0646\u0629 \u0648\u0644\u0627 \u062A\u064F\u0636\u0645\u0651\u064E\u0646 \u0641\u064A \u0631\u0633\u0627\u0626\u0644 Chrome \u0623\u0648 \u0627\u0644\u0635\u0627\u062F\u0631\u0627\u062A.",
   chatgptInvalidSignInCallback: "\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062F\u062E\u0648\u0644 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629.",
   chatgptInvalidCallback: "\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0627\u0644\u0639\u0648\u062F\u0629 \u063A\u064A\u0631 \u0635\u0627\u0644\u062D\u0629.",
   chatgptRequestCancelled: "\u062A\u0645 \u0625\u0644\u063A\u0627\u0621 \u0637\u0644\u0628 ChatGPT.",
@@ -9773,6 +9885,7 @@ var ar = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "\u0631\u0645\u0632 \u062A\u0634\u062E\u064A\u0635 \u0628\u062F\u0621 \u0627\u0644\u062A\u0634\u063A\u064A\u0644: {code}. \u0623\u0631\u0641\u0642 \u0647\u0630\u0627 \u0627\u0644\u0631\u0645\u0632 \u0639\u0646\u062F \u0627\u0644\u0625\u0628\u0644\u0627\u063A \u0639\u0646 \u0627\u0644\u0645\u0634\u0643\u0644\u0629.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -9821,16 +9934,7 @@ var ar = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "\u062A\u0639\u0637\u064A\u0644 \u0648\u0636\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",
-  subscriptionEnabledTitle: "\u062A\u0645 \u062A\u0645\u0643\u064A\u0646 \u0648\u0636\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",
-  subscriptionDisabledTitle: "\u062A\u0645 \u062A\u0639\u0637\u064A\u0644 \u0648\u0636\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",
-  subscriptionEnableInstructions: "\u0641\u064A \u0625\u0639\u062F\u0627\u062F\u0627\u062A Obsidian \u2190 NutEgg\u060C \u0642\u0645 \u0628\u062A\u0645\u0643\u064A\u0646 \xAB\u0648\u0636\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643\xBB.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "\u0648\u0636\u0639 \u0627\u0644\u0627\u0634\u062A\u0631\u0627\u0643",
-  subscriptionModeSettingDesc: "\u0627\u0633\u062A\u062E\u062F\u0645 \u0627\u0634\u062A\u0631\u0627\u0643 Claude \u0623\u0648 Codex \u0623\u0648 Gemini CLI \u0627\u0644\u0645\u062D\u0644\u064A \u0628\u062F\u0644\u0627\u064B \u0645\u0646 \u0645\u0641\u062A\u0627\u062D API.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -9886,8 +9990,6 @@ var ar = {
   localEndpointOpenAiDesc: "\u0639\u0646\u0648\u0627\u0646 URL \u0645\u062A\u0648\u0627\u0641\u0642 \u0645\u0639 OpenAI \u0644\u0644\u0645\u0634\u063A\u0644 \u0627\u0644\u0645\u062D\u0644\u064A",
   localPresets: "\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0627\u0644\u0645\u0633\u0628\u0642\u0629: ",
   localApiKeyDesc: "\u0627\u062E\u062A\u064A\u0627\u0631\u064A \u0644\u0644\u0646\u0645\u0627\u0630\u062C \u0627\u0644\u0645\u062D\u0644\u064A\u0629. \u0627\u062A\u0631\u0643\u0647 \u0641\u0627\u0631\u063A\u0627\u064B \u0625\u0630\u0627 \u0644\u0645 \u064A\u062A\u0637\u0644\u0628 \u062E\u0627\u062F\u0645\u0643 \u0645\u0635\u0627\u062F\u0642\u0629.",
-  aiModelFamily: "2. \u0639\u0627\u0626\u0644\u0629 \u0627\u0644\u0646\u0645\u0648\u0630\u062C",
-  aiModelFamilyDesc: "\u0627\u062E\u062A\u0631 \u0645\u0648\u0641\u0631 \u0627\u0644\u0646\u0645\u0648\u0630\u062C \u0623\u0648 \u0645\u062C\u0645\u0648\u0639\u0629 \u0627\u0644\u0628\u0646\u064A\u0629 \u0641\u064A OpenRouter",
   modelVersion: "3. \u0625\u0635\u062F\u0627\u0631 \u0627\u0644\u0646\u0645\u0648\u0630\u062C",
   modelVersionDesc: '\u064A\u062A\u0645 \u0625\u0631\u0633\u0627\u0644\u0647 \u0625\u0644\u0649 OpenRouter \u0628\u0627\u0633\u0645 "{model}"',
   aiModel: "2. \u0627\u0644\u0646\u0645\u0648\u0630\u062C",
@@ -9994,6 +10096,8 @@ var ar = {
 
 // src/i18n/fr.ts
 var fr = {
+  subscriptionLocalAccessHint: "Les connexions CLI ex\xE9cutent le fournisseur install\xE9 localement et cr\xE9ent des fichiers temporaires. Seul le contenu demand\xE9 est envoy\xE9 au fournisseur.",
+  chatgptLocalStorageHint: "Les identifiants sont prot\xE9g\xE9s dans le stockage local de l\u2019application hors du coffre et exclus des messages Chrome et des exports.",
   chatgptInvalidSignInCallback: "Retour de connexion invalide.",
   chatgptInvalidCallback: "Retour invalide.",
   chatgptRequestCancelled: "Requ\xEAte ChatGPT annul\xE9e.",
@@ -10104,6 +10208,7 @@ var fr = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "Diagnostic de d\xE9marrage : {code}. Joignez ce code au signalement du probl\xE8me.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -10152,16 +10257,7 @@ var fr = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "D\xE9sactiver le mode abonnement",
-  subscriptionEnabledTitle: "Mode abonnement activ\xE9",
-  subscriptionDisabledTitle: "Mode abonnement d\xE9sactiv\xE9",
-  subscriptionEnableInstructions: "Dans Param\xE8tres Obsidian \u2192 NutEgg, activez le \xAB Mode abonnement \xBB.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "Mode abonnement",
-  subscriptionModeSettingDesc: "Utiliser l'abonnement CLI local Claude, Codex ou Gemini au lieu de la cl\xE9 API.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -10217,8 +10313,6 @@ var fr = {
   localEndpointOpenAiDesc: "URL compatible OpenAI pour votre moteur local",
   localPresets: "Pr\xE9r\xE9glages : ",
   localApiKeyDesc: "Optionnel pour les LLM locaux. Laissez vide si aucune authentification n'est requise.",
-  aiModelFamily: "2. Famille de mod\xE8le",
-  aiModelFamilyDesc: "Choisissez le fournisseur ou groupe d'architecture sur OpenRouter",
   modelVersion: "3. Version du mod\xE8le",
   modelVersionDesc: 'Envoy\xE9 \xE0 OpenRouter comme "{model}"',
   aiModel: "2. Mod\xE8le",
@@ -10325,6 +10419,8 @@ var fr = {
 
 // src/i18n/de.ts
 var de = {
+  subscriptionLocalAccessHint: "CLI-Verbindungen f\xFChren den installierten Anbieter lokal aus und erstellen tempor\xE4re Dateien. Nur angeforderte Inhalte werden an den Anbieter gesendet.",
+  chatgptLocalStorageHint: "Anmeldedaten werden im lokalen Anwendungsspeicher au\xDFerhalb des Vaults gesch\xFCtzt und sind nicht in Chrome-Nachrichten oder Exporten enthalten.",
   chatgptInvalidSignInCallback: "Ung\xFCltige Anmeldeantwort.",
   chatgptInvalidCallback: "Ung\xFCltiger R\xFCckruf.",
   chatgptRequestCancelled: "ChatGPT-Anfrage abgebrochen.",
@@ -10435,6 +10531,7 @@ var de = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "Startdiagnose: {code}. Gib diesen Code an, wenn du das Problem meldest.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -10483,16 +10580,7 @@ var de = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "Abonnement-Modus deaktivieren",
-  subscriptionEnabledTitle: "Abonnement-Modus aktiviert",
-  subscriptionDisabledTitle: "Abonnement-Modus deaktiviert",
-  subscriptionEnableInstructions: "Aktivieren Sie in den Obsidian-Einstellungen \u2192 NutEgg den \u201EAbonnement-Modus\u201C.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "Abonnement-Modus",
-  subscriptionModeSettingDesc: "Lokales Claude-, Codex- oder Gemini-CLI-Abonnement anstelle eines API-Schl\xFCssels verwenden.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -10548,8 +10636,6 @@ var de = {
   localEndpointOpenAiDesc: "OpenAI-kompatible Chat-URL f\xFCr deinen lokalen Runner",
   localPresets: "Voreinstellungen: ",
   localApiKeyDesc: "Optional f\xFCr lokale LLMs. Leer lassen, wenn keine Authentifizierung erforderlich ist.",
-  aiModelFamily: "2. Modell-Familie",
-  aiModelFamilyDesc: "W\xE4hle den Modellanbieter oder die Architekturgruppe auf OpenRouter",
   modelVersion: "3. Modell-Version",
   modelVersionDesc: 'Wird an OpenRouter als "{model}" gesendet',
   aiModel: "2. Modell",
@@ -10656,6 +10742,8 @@ var de = {
 
 // src/i18n/pt.ts
 var pt = {
+  subscriptionLocalAccessHint: "As conex\xF5es CLI executam o provedor instalado localmente e criam arquivos tempor\xE1rios. Apenas o conte\xFAdo solicitado \xE9 enviado ao provedor.",
+  chatgptLocalStorageHint: "As credenciais s\xE3o protegidas no armazenamento local do aplicativo fora do cofre e n\xE3o s\xE3o inclu\xEDdas em mensagens do Chrome nem em exporta\xE7\xF5es.",
   chatgptInvalidSignInCallback: "Retorno de login inv\xE1lido.",
   chatgptInvalidCallback: "Retorno inv\xE1lido.",
   chatgptRequestCancelled: "Solicita\xE7\xE3o do ChatGPT cancelada.",
@@ -10766,6 +10854,7 @@ var pt = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "Diagn\xF3stico de inicializa\xE7\xE3o: {code}. Inclua este c\xF3digo ao relatar o problema.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -10814,16 +10903,7 @@ var pt = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "Desativar modo de assinatura",
-  subscriptionEnabledTitle: "Modo de assinatura ativado",
-  subscriptionDisabledTitle: "Modo de assinatura desativado",
-  subscriptionEnableInstructions: "Nas Configura\xE7\xF5es do Obsidian \u2192 NutEgg, ative o \xABModo de assinatura\xBB.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "Modo de assinatura",
-  subscriptionModeSettingDesc: "Usar a assinatura local de CLI do Claude, Codex ou Gemini em vez da chave de API.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -10879,8 +10959,6 @@ var pt = {
   localEndpointOpenAiDesc: "URL de chat compat\xEDvel com OpenAI para seu executor local",
   localPresets: "Predefini\xE7\xF5es: ",
   localApiKeyDesc: "Opcional para LLMs locais. Deixe em branco se seu servidor local n\xE3o exigir autentica\xE7\xE3o.",
-  aiModelFamily: "2. Fam\xEDlia do modelo",
-  aiModelFamilyDesc: "Escolha o fornecedor ou grupo de arquitetura no OpenRouter",
   modelVersion: "3. Vers\xE3o do modelo",
   modelVersionDesc: 'Enviado ao OpenRouter como "{model}"',
   aiModel: "2. Modelo",
@@ -10987,6 +11065,8 @@ var pt = {
 
 // src/i18n/ru.ts
 var ru = {
+  subscriptionLocalAccessHint: "\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u044F CLI \u0437\u0430\u043F\u0443\u0441\u043A\u0430\u044E\u0442 \u0443\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u043D\u0443\u044E \u043F\u0440\u043E\u0433\u0440\u0430\u043C\u043C\u0443 \u043F\u0440\u043E\u0432\u0430\u0439\u0434\u0435\u0440\u0430 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E \u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442 \u0432\u0440\u0435\u043C\u0435\u043D\u043D\u044B\u0435 \u0444\u0430\u0439\u043B\u044B. \u041F\u0440\u043E\u0432\u0430\u0439\u0434\u0435\u0440\u0443 \u043E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u043F\u0440\u043E\u0448\u0435\u043D\u043D\u043E\u0435 \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435.",
+  chatgptLocalStorageHint: "\u0414\u0430\u043D\u043D\u044B\u0435 \u0432\u0445\u043E\u0434\u0430 \u0437\u0430\u0449\u0438\u0449\u0435\u043D\u044B \u0432 \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u043C \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0435 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u044F \u0432\u043D\u0435 \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0430 Obsidian \u0438 \u043D\u0435 \u0432\u043A\u043B\u044E\u0447\u0430\u044E\u0442\u0441\u044F \u0432 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u044F Chrome \u0438\u043B\u0438 \u044D\u043A\u0441\u043F\u043E\u0440\u0442.",
   chatgptInvalidSignInCallback: "\u041D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u043E\u0442\u0432\u0435\u0442 \u0432\u0445\u043E\u0434\u0430.",
   chatgptInvalidCallback: "\u041D\u0435\u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0442\u0435\u043B\u044C\u043D\u044B\u0439 \u043E\u0431\u0440\u0430\u0442\u043D\u044B\u0439 \u0432\u044B\u0437\u043E\u0432.",
   chatgptRequestCancelled: "\u0417\u0430\u043F\u0440\u043E\u0441 ChatGPT \u043E\u0442\u043C\u0435\u043D\u0451\u043D.",
@@ -11097,6 +11177,7 @@ var ru = {
   chatgptModel: "ChatGPT model",
   chatgptRequiresObsidian: "ChatGPT sign-in requires Obsidian-connected mode. Keep Obsidian open.",
   chatgptTokenHint: "ChatGPT sign-in does not enforce the API output-token limit.",
+  chatgptStartupDiagnostic: "\u041A\u043E\u0434 \u0434\u0438\u0430\u0433\u043D\u043E\u0441\u0442\u0438\u043A\u0438 \u0437\u0430\u043F\u0443\u0441\u043A\u0430: {code}. \u0423\u043A\u0430\u0436\u0438\u0442\u0435 \u044D\u0442\u043E\u0442 \u043A\u043E\u0434 \u043F\u0440\u0438 \u0441\u043E\u043E\u0431\u0449\u0435\u043D\u0438\u0438 \u043E \u043F\u0440\u043E\u0431\u043B\u0435\u043C\u0435.",
   chatgptStorageUnavailable: "ChatGPT sign-in is unavailable. Check local credential storage or another running Obsidian instance.",
   chatgptState_signed_out: "Not signed in",
   chatgptState_signing_in: "Signing in\u2026",
@@ -11145,16 +11226,7 @@ var ru = {
   settingsObsidianSyncDesc: "Configure AI above. Keep Obsidian open to sync these settings.",
   subscriptionAccountProvider: "Provider account",
   subscriptionAccountSetup: "Sign in to this connection and choose its model. Obsidian and connected Chrome use the selected connection. Configure API keys in Chrome settings.",
-  subscriptionEnableCommand: "Enable experimental AI connections",
-  subscriptionDisableCommand: "\u041E\u0442\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0440\u0435\u0436\u0438\u043C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438",
-  subscriptionEnabledTitle: "\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438 \u0432\u043A\u043B\u044E\u0447\u0435\u043D",
-  subscriptionDisabledTitle: "\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438 \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D",
-  subscriptionEnableInstructions: "\u0412 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 Obsidian \u2192 NutEgg \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \xAB\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438\xBB.",
-  subscriptionSetupInstructions: "Subscriptions are now available. In Chrome, turn on Obsidian connection and enable Use subscription. Then return here to authorize your account and choose its model. Switch back to API key in Chrome whenever you want. Run NutEgg: Disable subscription mode to hide the feature and restore the saved Chrome API configuration.",
-  subscriptionModeSettingName: "\u0420\u0435\u0436\u0438\u043C \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0438",
-  subscriptionModeSettingDesc: "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u0443\u044E \u043F\u043E\u0434\u043F\u0438\u0441\u043A\u0443 Claude, Codex \u0438\u043B\u0438 Gemini CLI \u0432\u043C\u0435\u0441\u0442\u043E API-\u043A\u043B\u044E\u0447\u0430.",
   subscriptionUsageUnavailable: "Remaining usage is not reported by this provider.",
-  subscriptionGuideTitle: "How to enable and authorize subscriptions",
   subscriptionSteps: "Install \u2192 Sign in \u2192 Ready",
   subscriptionInstall: "Installation guide \u2197",
   subscriptionCopy: "Copy command",
@@ -11210,8 +11282,6 @@ var ru = {
   localEndpointOpenAiDesc: "OpenAI-\u0441\u043E\u0432\u043C\u0435\u0441\u0442\u0438\u043C\u044B\u0439 URL \u0434\u043B\u044F \u0432\u0430\u0448\u0435\u0433\u043E \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u043E\u0433\u043E \u0434\u0432\u0438\u0436\u043A\u0430",
   localPresets: "\u041F\u0440\u0435\u0441\u0435\u0442\u044B: ",
   localApiKeyDesc: "\u041D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u043B\u043E\u043A\u0430\u043B\u044C\u043D\u044B\u0445 \u043C\u043E\u0434\u0435\u043B\u0435\u0439. \u041E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043F\u0443\u0441\u0442\u044B\u043C, \u0435\u0441\u043B\u0438 \u0430\u0432\u0442\u043E\u0440\u0438\u0437\u0430\u0446\u0438\u044F \u043D\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044F.",
-  aiModelFamily: "2. \u0421\u0435\u043C\u0435\u0439\u0441\u0442\u0432\u043E \u043C\u043E\u0434\u0435\u043B\u0435\u0439",
-  aiModelFamilyDesc: "\u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0440\u0430\u0437\u0440\u0430\u0431\u043E\u0442\u0447\u0438\u043A\u0430 \u043C\u043E\u0434\u0435\u043B\u0438 \u0438\u043B\u0438 \u0433\u0440\u0443\u043F\u043F\u0443 \u0430\u0440\u0445\u0438\u0442\u0435\u043A\u0442\u0443\u0440\u044B \u0432 OpenRouter",
   modelVersion: "3. \u0412\u0435\u0440\u0441\u0438\u044F \u043C\u043E\u0434\u0435\u043B\u0438",
   modelVersionDesc: '\u041E\u0442\u043F\u0440\u0430\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0432 OpenRouter \u043A\u0430\u043A "{model}"',
   aiModel: "2. \u041C\u043E\u0434\u0435\u043B\u044C",
@@ -11339,9 +11409,6 @@ function getLanguage() {
       }
     } catch {
     }
-    if (!raw && typeof window !== "undefined" && window?.localStorage) {
-      raw = window.localStorage.getItem("language") || void 0;
-    }
     if (!raw) {
       try {
         if (typeof import_obsidian.moment?.locale === "function") {
@@ -11403,7 +11470,7 @@ var chatgptFetch = async (input, init = {}) => {
   const url = new URL(String(input));
   if (url.protocol !== "https:")
     throw new Error("ChatGPT requires HTTPS.");
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const headers = Object.fromEntries(new Headers(init.headers).entries());
     const request2 = https.request(url, {
       method: init.method || "GET",
@@ -11429,7 +11496,7 @@ var chatgptFetch = async (input, init = {}) => {
       if ([204, 205, 304].includes(status)) {
         response.resume();
         cleanup();
-        resolve3(new Response(null, { status, headers: resultHeaders }));
+        resolve4(new Response(null, { status, headers: resultHeaders }));
         return;
       }
       let ended = false;
@@ -11474,7 +11541,7 @@ var chatgptFetch = async (input, init = {}) => {
           request2.destroy();
         }
       });
-      resolve3(new Response(stream, { status, headers: resultHeaders }));
+      resolve4(new Response(stream, { status, headers: resultHeaders }));
     });
     request2.end(typeof init.body === "string" ? init.body : void 0);
   });
@@ -11682,9 +11749,9 @@ var ChatGPTService = class {
     this.message = "";
     this.emit();
     try {
-      await new Promise((resolve3, reject) => {
+      await new Promise((resolve4, reject) => {
         server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => resolve3());
+        server.listen(0, "127.0.0.1", () => resolve4());
       });
       if (controller.signal.aborted || this.login !== login) {
         server.close();
@@ -11874,14 +11941,14 @@ var ChatGPTService = class {
     }
     if (!signal)
       return this.refresh;
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const abort = () => reject(new AIError("cancelled", t("chatgptRequestCancelled")));
       if (signal.aborted) {
         abort();
         return;
       }
       signal.addEventListener("abort", abort, { once: true });
-      this.refresh.then(resolve3, reject).finally(() => signal.removeEventListener("abort", abort));
+      this.refresh.then(resolve4, reject).finally(() => signal.removeEventListener("abort", abort));
     });
   }
   async models(force = false) {
@@ -12112,12 +12179,72 @@ var ChatGPTService = class {
   }
 };
 
-// src/chatgpt-store.ts
+// src/local-access.ts
 var fs = __toESM(require("fs"));
 var path = __toESM(require("path"));
+function windowsSystemCommand(command, env = process.env) {
+  const root = env.SystemRoot || env.SYSTEMROOT || env.WINDIR || "C:\\Windows";
+  if (!/^[a-z]:[\\/]/i.test(root))
+    throw new Error("Invalid Windows system directory.");
+  return command === "icacls" ? path.win32.join(root, "System32", "icacls.exe") : path.win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+function vaultDatabasePath(base, relative3) {
+  const target = path.resolve(base, relative3);
+  const inside = (root2, value) => {
+    const suffix = path.relative(root2, value);
+    return suffix !== "" && suffix !== ".." && !suffix.startsWith(`..${path.sep}`) && !path.isAbsolute(suffix);
+  };
+  if (!inside(path.resolve(base), target))
+    throw new Error("Database must remain inside the vault.");
+  let ancestor = target;
+  while (!fs.existsSync(ancestor)) {
+    try {
+      if (fs.lstatSync(ancestor).isSymbolicLink())
+        throw new Error("Unsafe database path.");
+    } catch (error) {
+      if (error.code !== "ENOENT")
+        throw error;
+    }
+    ancestor = path.dirname(ancestor);
+  }
+  const root = fs.realpathSync(base);
+  const actual = fs.realpathSync(ancestor);
+  if (actual !== root && !inside(root, actual))
+    throw new Error("Database path escapes the vault.");
+  return target;
+}
+
+// src/chatgpt-store.ts
+var fs2 = __toESM(require("fs"));
+var path2 = __toESM(require("path"));
 var os = __toESM(require("os"));
 var import_node_crypto2 = require("crypto");
 var import_node_child_process = require("child_process");
+function chatgptStartupDiagnostic(error) {
+  const value = error;
+  const codes = [
+    "EACCES",
+    "EPERM",
+    "ENOENT",
+    "EEXIST",
+    "EBADF",
+    "EINVAL",
+    "EIO",
+    "ENOSPC",
+    "storage_locked",
+    "storage_identity",
+    "storage_record",
+    "storage_permissions",
+    "storage_location"
+  ];
+  const code = typeof value?.code === "string" && codes.includes(value.code) ? value.code : "storage_unknown";
+  const calls = ["open", "mkdir", "fsync", "rename", "unlink", "read", "write", "stat", "lstat", "realpath"];
+  const syscall = typeof value?.syscall === "string" && calls.includes(value.syscall) ? value.syscall : "";
+  return [code, syscall].filter(Boolean).join(" / ");
+}
+function storageError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
 var FileChatGPTStore = class {
   hostId;
   directory;
@@ -12125,70 +12252,83 @@ var FileChatGPTStore = class {
   owner = `${process.pid}:${(0, import_node_crypto2.randomUUID)()}`;
   closed = false;
   constructor(vaultPath, root) {
-    const base = root || path.join(
-      process.platform === "win32" ? process.env.LOCALAPPDATA || os.homedir() : process.platform === "darwin" ? path.join(os.homedir(), "Library", "Application Support") : process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
+    const base = root || path2.join(
+      process.platform === "win32" ? process.env.LOCALAPPDATA || os.homedir() : process.platform === "darwin" ? path2.join(os.homedir(), "Library", "Application Support") : process.env.XDG_DATA_HOME || path2.join(os.homedir(), ".local", "share"),
       "NutEgg",
       "chatgpt"
     );
-    this.directory = path.join(base, (0, import_node_crypto2.createHash)("sha256").update(fs.realpathSync(vaultPath)).digest("hex"));
-    fs.mkdirSync(this.directory, { recursive: true, mode: 448 });
-    const canonicalVault = fs.realpathSync(vaultPath);
-    const canonicalStorage = fs.realpathSync(this.directory);
-    if (canonicalStorage === canonicalVault || canonicalStorage.startsWith(canonicalVault + path.sep))
-      throw new Error("ChatGPT credentials must be stored outside the vault.");
+    this.directory = path2.join(base, (0, import_node_crypto2.createHash)("sha256").update(fs2.realpathSync(vaultPath)).digest("hex"));
+    fs2.mkdirSync(this.directory, { recursive: true, mode: 448 });
+    const canonicalVault = fs2.realpathSync(vaultPath);
+    const canonicalStorage = fs2.realpathSync(this.directory);
+    if (canonicalStorage === canonicalVault || canonicalStorage.startsWith(canonicalVault + path2.sep))
+      throw storageError("storage_location", "ChatGPT credentials must be stored outside the vault.");
     this.protect(this.directory, true);
-    this.lock = path.join(this.directory, "session.lock");
+    this.lock = path2.join(this.directory, "session.lock");
     try {
       this.acquire();
     } catch (error) {
       if (error.code !== "EEXIST")
         throw error;
-      const pid = Number(fs.readFileSync(this.lock, "utf8").split(":")[0]);
+      const pid = Number(fs2.readFileSync(this.lock, "utf8").split(":")[0]);
       if (!Number.isSafeInteger(pid) || pid < 1)
-        throw new Error("ChatGPT credential storage is locked.");
+        throw storageError("storage_locked", "ChatGPT credential storage is locked.");
       try {
         process.kill(pid, 0);
       } catch (err) {
         if (err.code !== "ESRCH")
-          throw new Error("ChatGPT credential storage is locked.");
-        fs.unlinkSync(this.lock);
+          throw storageError("storage_locked", "ChatGPT credential storage is locked.");
+        fs2.unlinkSync(this.lock);
         this.acquire();
       }
-      if (fs.readFileSync(this.lock, "utf8") !== this.owner)
-        throw new Error("Another Obsidian instance owns this ChatGPT connection.");
+      if (fs2.readFileSync(this.lock, "utf8") !== this.owner)
+        throw storageError("storage_locked", "Another Obsidian instance owns this ChatGPT connection.");
     }
     try {
-      const host = path.join(this.directory, "host.json");
-      if (!fs.existsSync(host))
+      const host = path2.join(this.directory, "host.json");
+      if (!fs2.existsSync(host))
         this.atomic(host, JSON.stringify({ id: `urn:uuid:${(0, import_node_crypto2.randomUUID)()}` }));
       this.protect(host);
-      this.hostId = JSON.parse(fs.readFileSync(host, "utf8")).id;
+      this.hostId = JSON.parse(fs2.readFileSync(host, "utf8")).id;
       if (!/^urn:uuid:[\da-f-]{36}$/i.test(this.hostId))
-        throw new Error("Invalid ChatGPT installation identity.");
+        throw storageError("storage_identity", "Invalid ChatGPT installation identity.");
     } catch (error) {
       this.close();
       throw error;
     }
   }
   acquire() {
-    fs.writeFileSync(this.lock, this.owner, { flag: "wx", mode: 384 });
-    this.protect(this.lock);
+    fs2.writeFileSync(this.lock, this.owner, { flag: "wx", mode: 384 });
+    try {
+      this.protect(this.lock);
+    } catch (error) {
+      try {
+        if (fs2.readFileSync(this.lock, "utf8") === this.owner)
+          fs2.unlinkSync(this.lock);
+      } catch {
+      }
+      throw error;
+    }
   }
   protect(file, directory = false) {
-    const stat = fs.lstatSync(file);
-    if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()))
+    const stat2 = fs2.lstatSync(file);
+    if (stat2.isSymbolicLink() || (directory ? !stat2.isDirectory() : !stat2.isFile()))
       throw new Error("Unsafe ChatGPT storage path.");
     if (process.platform === "win32") {
       const user = os.userInfo().username;
-      (0, import_node_child_process.execFileSync)("icacls", [file, "/reset"], { windowsHide: true, stdio: "ignore" });
-      (0, import_node_child_process.execFileSync)("icacls", [file, "/inheritance:r", "/grant:r", `${user}:${directory ? "(OI)(CI)" : ""}F`], {
-        windowsHide: true,
-        stdio: "ignore"
-      });
+      try {
+        (0, import_node_child_process.execFileSync)(windowsSystemCommand("icacls"), [file, "/reset"], { windowsHide: true, stdio: "ignore" });
+        (0, import_node_child_process.execFileSync)(windowsSystemCommand("icacls"), [file, "/inheritance:r", "/grant:r", `${user}:${directory ? "(OI)(CI)" : ""}F`], {
+          windowsHide: true,
+          stdio: "ignore"
+        });
+      } catch {
+        throw storageError("storage_permissions", "Cannot protect ChatGPT credential storage.");
+      }
     } else {
-      if (stat.uid !== process.getuid?.())
+      if (stat2.uid !== process.getuid?.())
         throw new Error("ChatGPT storage is owned by another user.");
-      fs.chmodSync(file, directory ? 448 : 384);
+      fs2.chmodSync(file, directory ? 448 : 384);
     }
   }
   atomic(file, value) {
@@ -12196,60 +12336,167 @@ var FileChatGPTStore = class {
       throw new Error("ChatGPT credential storage is closed.");
     const temporary = `${file}.${(0, import_node_crypto2.randomUUID)()}.tmp`;
     try {
-      fs.writeFileSync(temporary, value, { flag: "wx", mode: 384 });
+      fs2.writeFileSync(temporary, value, { flag: "wx", mode: 384 });
       this.protect(temporary);
-      const fd = fs.openSync(temporary, "r");
+      const fd = fs2.openSync(temporary, "r+");
       try {
-        fs.fsyncSync(fd);
+        fs2.fsyncSync(fd);
       } finally {
-        fs.closeSync(fd);
+        fs2.closeSync(fd);
       }
-      fs.renameSync(temporary, file);
+      fs2.renameSync(temporary, file);
     } finally {
-      if (fs.existsSync(temporary))
-        fs.unlinkSync(temporary);
+      if (fs2.existsSync(temporary))
+        fs2.unlinkSync(temporary);
     }
   }
   load() {
-    const file = path.join(this.directory, "credentials.json");
-    if (!fs.existsSync(file))
+    const file = path2.join(this.directory, "credentials.json");
+    if (!fs2.existsSync(file))
       return void 0;
     this.protect(file);
-    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    const record = JSON.parse(fs2.readFileSync(file, "utf8"));
     if (!record || typeof record.clientId !== "string" || record.clientId === "dynamic_agent_client" || !Array.isArray(record.scopes) || !Number.isFinite(record.expiresAt))
-      throw new Error("Invalid ChatGPT credential record.");
+      throw storageError("storage_record", "Invalid ChatGPT credential record.");
     return record;
   }
   save(value) {
-    this.atomic(path.join(this.directory, "credentials.json"), JSON.stringify(value));
+    this.atomic(path2.join(this.directory, "credentials.json"), JSON.stringify(value));
   }
   clear() {
     if (this.closed)
       throw new Error("ChatGPT credential storage is closed.");
-    fs.rmSync(path.join(this.directory, "credentials.json"), { force: true });
+    fs2.rmSync(path2.join(this.directory, "credentials.json"), { force: true });
   }
   close() {
     if (this.closed)
       return;
     this.closed = true;
-    if (fs.existsSync(this.lock) && fs.readFileSync(this.lock, "utf8") === this.owner)
-      fs.unlinkSync(this.lock);
+    if (fs2.existsSync(this.lock) && fs2.readFileSync(this.lock, "utf8") === this.owner)
+      fs2.unlinkSync(this.lock);
   }
 };
 
 // src/subscription-service.ts
-var import_node_child_process4 = require("child_process");
-var import_promises3 = require("fs/promises");
-var import_node_os3 = require("os");
-var import_node_path3 = require("path");
+var import_node_child_process5 = require("child_process");
+var import_promises4 = require("fs/promises");
+var import_node_os4 = require("os");
+var import_node_path4 = require("path");
 var import_node_crypto3 = require("crypto");
 
 // src/subscription-cli.mjs
+var import_node_child_process3 = require("child_process");
+var import_node_fs2 = require("fs");
+var import_promises2 = require("fs/promises");
+var import_node_os2 = require("os");
+var import_node_path2 = require("path");
+var import_node_module2 = require("module");
+
+// src/subscription-windows.mjs
 var import_node_child_process2 = require("child_process");
-var import_node_fs = require("fs");
+var import_node_util = require("util");
 var import_promises = require("fs/promises");
+var import_node_fs = require("fs");
 var import_node_os = require("os");
 var import_node_path = require("path");
+var import_node_module = require("module");
+var execute2 = (0, import_node_util.promisify)(import_node_child_process2.execFile);
+var cachedRegistry;
+async function readWindowsPath(env = process.env, run = execute2) {
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  const script = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); @([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) | ConvertTo-Json -Compress";
+  try {
+    const { stdout } = await run(
+      (0, import_node_path.join)(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true, timeout: 3e3, maxBuffer: 32768, encoding: "utf8" }
+    );
+    const paths = JSON.parse(stdout.replace(/^\uFEFF/, "").trim());
+    return Array.isArray(paths) ? paths.filter((value) => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+async function registryPaths(env) {
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || "C:\\Windows";
+  if (!cachedRegistry || Date.now() >= cachedRegistry.expires || cachedRegistry.systemRoot !== systemRoot) {
+    cachedRegistry = { expires: Date.now() + 3e4, systemRoot, task: readWindowsPath(env) };
+  }
+  return cachedRegistry.task;
+}
+async function windowsSearchDirectories({
+  env = process.env,
+  home = (0, import_node_os.homedir)(),
+  readRegistry = registryPaths
+} = {}) {
+  const variables = new Map(Object.entries(env).map(([key, value]) => [key.toLowerCase(), value]));
+  if (!variables.has("userprofile"))
+    variables.set("userprofile", home);
+  const persisted = await readRegistry(env);
+  const values = [env.PATH || env.Path || "", ...persisted];
+  const directories = [];
+  for (const value of values) {
+    for (let entry of value.split(";")) {
+      entry = entry.trim().replace(/^"(.*)"$/, "$1");
+      for (let round = 0; round < 4 && /%[^%]+%/.test(entry); round++)
+        entry = entry.replace(/%([^%]+)%/g, (match, key) => variables.get(key.toLowerCase()) || match);
+      if (entry && !entry.includes("%") && ((0, import_node_path.isAbsolute)(entry) || import_node_path.win32.isAbsolute(entry)))
+        directories.push(entry);
+    }
+  }
+  const local = env.LOCALAPPDATA || (0, import_node_path.join)(home, "AppData", "Local");
+  directories.push((0, import_node_path.join)(home, ".local", "bin"), (0, import_node_path.join)(local, "Microsoft", "WinGet", "Links"));
+  return [...new Set(directories)];
+}
+async function nativeExecutable(candidates) {
+  for (const file of new Set(candidates)) {
+    let handle;
+    try {
+      await (0, import_promises.access)(file, import_node_fs.constants.X_OK);
+      if (!(await (0, import_promises.stat)(file)).isFile())
+        continue;
+      handle = await (0, import_promises.open)(file, "r");
+      const signature = Buffer.alloc(2);
+      await handle.read(signature, 0, 2, 0);
+      if (signature.toString("ascii") === "MZ")
+        return file;
+    } catch {
+    } finally {
+      await handle?.close();
+    }
+  }
+  return void 0;
+}
+async function resolveWindowsClaude({ directories, env = process.env, home = (0, import_node_os.homedir)(), arch = process.arch }) {
+  const local = env.LOCALAPPDATA || (0, import_node_path.join)(home, "AppData", "Local");
+  const candidates = directories.map((dir) => (0, import_node_path.join)(dir, "claude.exe"));
+  candidates.push((0, import_node_path.join)(local, "Programs", "claude", "claude.exe"));
+  if (["x64", "arm64"].includes(arch)) {
+    const platformPackage = `@anthropic-ai/claude-code-win32-${arch}`;
+    for (const prefix of /* @__PURE__ */ new Set([...directories, (0, import_node_path.join)(env.APPDATA || (0, import_node_path.join)(home, "AppData", "Roaming"), "npm")])) {
+      const root = (0, import_node_path.join)(prefix, "node_modules", "@anthropic-ai", "claude-code");
+      try {
+        const platformRoot = (0, import_node_path.dirname)(
+          (0, import_node_module.createRequire)((0, import_node_path.join)(root, "package.json")).resolve(`${platformPackage}/package.json`)
+        );
+        candidates.push((0, import_node_path.join)(platformRoot, "claude.exe"));
+      } catch {
+      }
+      candidates.push(
+        (0, import_node_path.join)(root, "node_modules", platformPackage, "claude.exe"),
+        (0, import_node_path.join)(prefix, "node_modules", platformPackage, "claude.exe"),
+        (0, import_node_path.join)(root, "bin", "claude.exe")
+      );
+    }
+  }
+  return nativeExecutable(candidates);
+}
+async function resolveWindowsAgy({ directories, env = process.env, home = (0, import_node_os.homedir)() }) {
+  const local = env.LOCALAPPDATA || (0, import_node_path.join)(home, "AppData", "Local");
+  return nativeExecutable([...directories.map((dir) => (0, import_node_path.join)(dir, "agy.exe")), (0, import_node_path.join)(local, "agy", "bin", "agy.exe")]);
+}
+
+// src/subscription-cli.mjs
 var BridgeError = class extends Error {
   constructor(status, message, code) {
     super(message);
@@ -12262,33 +12509,72 @@ var PROVIDERS = {
   codex: { label: "Codex CLI", login: "codex login", override: "NUTEGG_CODEX_COMMAND" },
   claude: { label: "Claude Code", login: "claude auth login", override: "NUTEGG_CLAUDE_COMMAND" }
 };
+function missingCommand(info) {
+  return new BridgeError(503, `${info.label} was not found. Install it, run ${info.login}, and check again. Set ${info.override} if it is installed outside PATH.`);
+}
+async function resolveWindowsCodex(prefixes, arch = process.arch) {
+  const target = arch === "arm64" ? "aarch64" : arch === "x64" ? "x86_64" : null;
+  if (!target)
+    return void 0;
+  const platformPackage = `@openai/codex-win32-${arch}`;
+  for (const prefix of new Set(prefixes)) {
+    const root = (0, import_node_path2.join)(prefix, "node_modules", "@openai", "codex");
+    const roots = [root];
+    try {
+      roots.unshift((0, import_node_path2.dirname)((0, import_node_module2.createRequire)((0, import_node_path2.join)(root, "package.json")).resolve(`${platformPackage}/package.json`)));
+    } catch {
+    }
+    roots.push((0, import_node_path2.join)(root, "node_modules", platformPackage), (0, import_node_path2.join)(prefix, "node_modules", platformPackage));
+    for (const packageRoot of new Set(roots)) {
+      for (const folder of ["bin", "codex"]) {
+        const candidate = (0, import_node_path2.join)(packageRoot, "vendor", `${target}-pc-windows-msvc`, folder, "codex.exe");
+        try {
+          await (0, import_promises2.access)(candidate, import_node_fs2.constants.X_OK);
+          return candidate;
+        } catch {
+        }
+      }
+    }
+  }
+  return void 0;
+}
 async function resolveSubscriptionCommand(provider, command) {
   const info = PROVIDERS[provider];
   if (!info)
     throw new BridgeError(400, "Unknown subscription provider.");
   const name = command || process.env[info.override] || (process.platform === "win32" ? `${provider}.exe` : provider);
-  const candidates = (0, import_node_path.isAbsolute)(name) || name.includes("/") || name.includes("\\") ? [(0, import_node_path.resolve)(name)] : (process.env.PATH || "").split(import_node_path.delimiter).filter(Boolean).map((dir) => (0, import_node_path.join)(dir, name));
+  const candidates = (0, import_node_path2.isAbsolute)(name) || name.includes("/") || name.includes("\\") ? [(0, import_node_path2.resolve)(name)] : (process.env.PATH || "").split(import_node_path2.delimiter).filter(Boolean).map((dir) => (0, import_node_path2.join)(dir, name));
   if (!command && !process.env[info.override] && process.platform === "win32") {
-    const appData = process.env.APPDATA || (0, import_node_path.join)((0, import_node_os.homedir)(), "AppData", "Roaming");
-    const local = process.env.LOCALAPPDATA || (0, import_node_path.join)((0, import_node_os.homedir)(), "AppData", "Local");
-    candidates.push((0, import_node_path.join)(local, "Programs", provider, name), (0, import_node_path.join)((0, import_node_os.homedir)(), ".local", "bin", name));
+    const directories = await windowsSearchDirectories();
+    if (provider === "claude") {
+      const binary = await resolveWindowsClaude({ directories });
+      if (binary)
+        return binary;
+      throw missingCommand(info);
+    }
+    candidates.push(...directories.map((dir) => (0, import_node_path2.join)(dir, name)));
+    const appData = process.env.APPDATA || (0, import_node_path2.join)((0, import_node_os2.homedir)(), "AppData", "Roaming");
+    const local = process.env.LOCALAPPDATA || (0, import_node_path2.join)((0, import_node_os2.homedir)(), "AppData", "Local");
+    candidates.push((0, import_node_path2.join)(local, "Programs", provider, name), (0, import_node_path2.join)((0, import_node_os2.homedir)(), ".local", "bin", name));
     if (provider === "codex") {
-      for (const arch of ["x86_64", "aarch64"]) {
-        candidates.push((0, import_node_path.join)(appData, "npm", "node_modules", "@openai", "codex", "vendor", `${arch}-pc-windows-msvc`, "codex", "codex.exe"));
-        candidates.push((0, import_node_path.join)(appData, "npm", "node_modules", "@openai", `codex-win32-${arch === "x86_64" ? "x64" : "arm64"}`, "vendor", `${arch}-pc-windows-msvc`, "codex", "codex.exe"));
-      }
+      const binary = await resolveWindowsCodex([
+        ...directories,
+        (0, import_node_path2.join)(appData, "npm")
+      ]);
+      if (binary)
+        candidates.push(binary);
     }
   }
   if (!command && !process.env[info.override])
-    candidates.push((0, import_node_path.join)((0, import_node_os.homedir)(), ".local", "bin", name), (0, import_node_path.join)("/opt/homebrew/bin", name), (0, import_node_path.join)("/usr/local/bin", name));
-  for (const path2 of candidates) {
+    candidates.push((0, import_node_path2.join)((0, import_node_os2.homedir)(), ".local", "bin", name), (0, import_node_path2.join)("/opt/homebrew/bin", name), (0, import_node_path2.join)("/usr/local/bin", name));
+  for (const path3 of candidates) {
     try {
-      await (0, import_promises.access)(path2, import_node_fs.constants.X_OK);
-      return path2;
+      await (0, import_promises2.access)(path3, import_node_fs2.constants.X_OK);
+      return path3;
     } catch {
     }
   }
-  throw new BridgeError(503, `${info.label} was not found. Install it, run ${info.login}, and check again. Set ${info.override} if it is installed outside PATH.`);
+  throw missingCommand(info);
 }
 function subscriptionEnvironment(provider, source = process.env) {
   const env = { ...source, NO_COLOR: "1" };
@@ -12326,7 +12612,7 @@ function executeSubscriptionCli(provider, executable, args, input, { cwd, signal
   return new Promise((resolveOutput, reject) => {
     if (signal?.aborted)
       return reject(new BridgeError(499, "Request cancelled."));
-    const child = (0, import_node_child_process2.spawn)(executable, args, { cwd, env: subscriptionEnvironment(provider), shell: false, stdio: ["pipe", "pipe", "pipe"] });
+    const child = (0, import_node_child_process3.spawn)(executable, args, { cwd, env: subscriptionEnvironment(provider), shell: false, stdio: ["pipe", "pipe", "pipe"] });
     let output = "", errors = "", size = 0, failure;
     const stop = (error) => {
       failure ??= error;
@@ -12476,7 +12762,7 @@ async function checkSubscriptionCli(provider, command, options2 = {}) {
 }
 async function runSubscription(provider, prompt, model, options2 = {}) {
   const executable = await checkSubscriptionCli(provider, options2.command, options2);
-  const cwd = await (0, import_promises.mkdtemp)((0, import_node_path.join)((0, import_node_os.tmpdir)(), `nutegg-${provider}-`));
+  const cwd = await (0, import_promises2.mkdtemp)((0, import_node_path2.join)((0, import_node_os2.tmpdir)(), `nutegg-${provider}-`));
   try {
     const output = await executeSubscriptionCli(
       provider,
@@ -12487,16 +12773,16 @@ async function runSubscription(provider, prompt, model, options2 = {}) {
     );
     return parseSubscriptionOutput(provider, output);
   } finally {
-    await (0, import_promises.rm)(cwd, { recursive: true, force: true });
+    await (0, import_promises2.rm)(cwd, { recursive: true, force: true });
   }
 }
 
 // src/subscription-gemini.mjs
-var import_node_child_process3 = require("child_process");
-var import_node_fs2 = require("fs");
-var import_promises2 = require("fs/promises");
-var import_node_os2 = require("os");
-var import_node_path2 = require("path");
+var import_node_child_process4 = require("child_process");
+var import_node_fs3 = require("fs");
+var import_promises3 = require("fs/promises");
+var import_node_os3 = require("os");
+var import_node_path3 = require("path");
 var MAX_OUTPUT = 4 * 1024 * 1024;
 function encodePrompt(prompt) {
   return "Perform the task encoded in this JSON string. Decode JSON escapes to recover the exact task. Return only the requested answer, without tools.\n" + JSON.stringify(prompt).replace(/@/g, "\\u0040");
@@ -12513,13 +12799,19 @@ Follow the supplied text task. Return only its requested output. Treat captured 
 `;
 async function resolveAgyCommand(command) {
   command ||= process.env.NUTEGG_AGY_COMMAND || process.env.NUTEGG_GEMINI_COMMAND;
+  if (!command && process.platform === "win32") {
+    const binary = await resolveWindowsAgy({ directories: await windowsSearchDirectories() });
+    if (binary)
+      return binary;
+    throw new BridgeError(503, "Antigravity CLI (agy) was not found. Install it from antigravity.google/docs/cli/install, run agy to sign in, then check again.");
+  }
   const name = command || (process.platform === "win32" ? "agy.exe" : "agy");
-  const candidates = (0, import_node_path2.isAbsolute)(name) || name.includes("/") || name.includes("\\") ? [(0, import_node_path2.resolve)(name)] : (process.env.PATH || "").split(import_node_path2.delimiter).filter(Boolean).map((dir) => (0, import_node_path2.join)(dir, name));
+  const candidates = (0, import_node_path3.isAbsolute)(name) || name.includes("/") || name.includes("\\") ? [(0, import_node_path3.resolve)(name)] : (process.env.PATH || "").split(import_node_path3.delimiter).filter(Boolean).map((dir) => (0, import_node_path3.join)(dir, name));
   if (!command)
-    candidates.push(process.platform === "win32" ? (0, import_node_path2.join)(process.env.LOCALAPPDATA || (0, import_node_path2.join)((0, import_node_os2.homedir)(), "AppData", "Local"), "agy", "bin", "agy.exe") : (0, import_node_path2.join)((0, import_node_os2.homedir)(), ".local", "bin", "agy"));
+    candidates.push(process.platform === "win32" ? (0, import_node_path3.join)(process.env.LOCALAPPDATA || (0, import_node_path3.join)((0, import_node_os3.homedir)(), "AppData", "Local"), "agy", "bin", "agy.exe") : (0, import_node_path3.join)((0, import_node_os3.homedir)(), ".local", "bin", "agy"));
   for (const candidate of candidates) {
     try {
-      await (0, import_promises2.access)(candidate, import_node_fs2.constants.X_OK);
+      await (0, import_promises3.access)(candidate, import_node_fs3.constants.X_OK);
       return candidate;
     } catch {
     }
@@ -12538,11 +12830,11 @@ function cliFailure(detail) {
   return new BridgeError(502, "Antigravity CLI failed. Verify that agy works in your terminal, update the CLI, and retry.");
 }
 async function runGemini(prompt, model, { command, signal, timeoutMs = 18e4 } = {}) {
-  const workdir = await (0, import_promises2.mkdtemp)((0, import_node_path2.join)((0, import_node_os2.tmpdir)(), "nutegg-gemini-"));
+  const workdir = await (0, import_promises3.mkdtemp)((0, import_node_path3.join)((0, import_node_os3.tmpdir)(), "nutegg-gemini-"));
   try {
-    const agentsDir = (0, import_node_path2.join)(workdir, ".agents", "agents");
-    await (0, import_promises2.mkdir)(agentsDir, { recursive: true });
-    await (0, import_promises2.writeFile)((0, import_node_path2.join)(agentsDir, "nutegg-text.md"), CLI_AGENT, { mode: 384 });
+    const agentsDir = (0, import_node_path3.join)(workdir, ".agents", "agents");
+    await (0, import_promises3.mkdir)(agentsDir, { recursive: true });
+    await (0, import_promises3.writeFile)((0, import_node_path3.join)(agentsDir, "nutegg-text.md"), CLI_AGENT, { mode: 384 });
     const env = { ...process.env, NO_COLOR: "1" };
     for (const name of ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_GEMINI_BASE_URL"])
       delete env[name];
@@ -12553,7 +12845,7 @@ async function runGemini(prompt, model, { command, signal, timeoutMs = 18e4 } = 
     const stdout = await new Promise((resolveOutput, reject) => {
       if (signal?.aborted)
         return reject(new BridgeError(499, "Request cancelled."));
-      const child = (0, import_node_child_process3.spawn)(executable, args, { cwd: workdir, env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
+      const child = (0, import_node_child_process4.spawn)(executable, args, { cwd: workdir, env, shell: false, stdio: ["pipe", "pipe", "pipe"] });
       let output = "", errors = "", bytes = 0, failure;
       const stop = (error) => {
         failure ??= error;
@@ -12607,7 +12899,7 @@ async function runGemini(prompt, model, { command, signal, timeoutMs = 18e4 } = 
     }
     return data.response;
   } finally {
-    await (0, import_promises2.rm)(workdir, { recursive: true, force: true });
+    await (0, import_promises3.rm)(workdir, { recursive: true, force: true });
   }
 }
 
@@ -12639,6 +12931,13 @@ var SubscriptionService = class {
   constructor(paths = {}, enabled = () => false) {
     this.paths = paths;
     this.enabled = enabled;
+  }
+  ownedLoginDirectories = /* @__PURE__ */ new Set();
+  async removeLoginDirectory(directory) {
+    if (!this.ownedLoginDirectories.has(directory))
+      return;
+    await (0, import_promises4.rm)(directory, { recursive: true, force: true });
+    this.ownedLoginDirectories.delete(directory);
   }
   tail = Promise.resolve();
   controllers = /* @__PURE__ */ new Set();
@@ -12796,12 +13095,12 @@ var SubscriptionService = class {
     this.pending++;
     const previous = this.tail;
     let release;
-    const gate = new Promise((resolve3) => {
-      release = resolve3;
+    const gate = new Promise((resolve4) => {
+      release = resolve4;
     });
     this.tail = previous.then(() => gate);
     try {
-      await new Promise((resolve3, reject) => {
+      await new Promise((resolve4, reject) => {
         const cancelled = () => {
           signal?.removeEventListener("abort", cancelled);
           reject(new AIError("cancelled", t("subscriptionJobCancelled")));
@@ -12809,7 +13108,7 @@ var SubscriptionService = class {
         signal?.addEventListener("abort", cancelled, { once: true });
         previous.then(() => {
           signal?.removeEventListener("abort", cancelled);
-          resolve3();
+          resolve4();
         });
         if (signal?.aborted)
           cancelled();
@@ -12857,10 +13156,10 @@ var SubscriptionService = class {
     if (pending)
       return pending;
     const epoch2 = this.statusEpoch;
-    const request2 = this.discoverModels(provider).then((models) => {
+    const request2 = this.discoverModels(provider).then((models2) => {
       if (epoch2 === this.statusEpoch)
         this.modelTimes.set(provider, Date.now());
-      return models;
+      return models2;
     }).finally(() => {
       if (this.modelPending.get(provider) === request2)
         this.modelPending.delete(provider);
@@ -12874,9 +13173,9 @@ var SubscriptionService = class {
     if (this.closed)
       return this.modelCache.get(provider) || ["auto"];
     try {
-      let models;
+      let models2;
       if (provider === "anthropic")
-        models = ["sonnet", "opus", "haiku"];
+        models2 = ["sonnet", "opus", "haiku"];
       else if (provider === "google") {
         const executable = await this.resolve(provider);
         this.requireEnabled();
@@ -12895,22 +13194,22 @@ var SubscriptionService = class {
           child.on("close", (code) => finish(code === 0 ? void 0 : new Error("Model discovery unavailable"), text2));
         });
         const validModelRegex = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
-        models = [
+        models2 = [
           ...new Set(
             output.replace(/\x1b\[[0-9;]*m/g, "").split(/\s+/).filter((id) => validModelRegex.test(id) && /gemini|claude|gpt|^auto$/.test(id))
           )
         ];
       } else
-        models = await this.codexModels();
+        models2 = await this.codexModels();
       if (epoch2 === this.statusEpoch)
-        this.modelCache.set(provider, ["auto", ...models.filter((id) => id !== "auto")]);
+        this.modelCache.set(provider, ["auto", ...models2.filter((id) => id !== "auto")]);
     } catch {
     }
     return this.modelCache.get(provider) || ["auto"];
   }
   runDiscovery(provider, executable, args, timeoutMs, start) {
-    return new Promise((resolve3, reject) => {
-      const child = (0, import_node_child_process4.spawn)(executable, args, {
+    return new Promise((resolve4, reject) => {
+      const child = (0, import_node_child_process5.spawn)(executable, args, {
         env: this.environment(provider),
         stdio: ["pipe", "pipe", "pipe"],
         shell: false
@@ -12929,7 +13228,7 @@ var SubscriptionService = class {
         if (error)
           reject(error);
         else
-          resolve3(value);
+          resolve4(value);
       };
       const timer = setTimeout(() => finish(new Error("Subscription check timed out")), timeoutMs);
       this.discovery.set(child, () => finish(new Error("Subscription check cancelled")));
@@ -12952,7 +13251,7 @@ var SubscriptionService = class {
     if (this.closed || epoch2 !== this.statusEpoch)
       throw new Error(t("subscriptionStopped"));
     return this.runDiscovery("openai", executable, ["app-server"], 1e4, (child, finish) => {
-      let buffer = "", models = [], pages = 0, total = 0;
+      let buffer = "", models2 = [], pages = 0, total = 0;
       const send = (data) => child.stdin.write(JSON.stringify(data) + "\n");
       child.stdout.on("data", (chunk) => {
         total += chunk.length;
@@ -12979,13 +13278,13 @@ var SubscriptionService = class {
                 finish(new Error("Invalid model list"));
                 return;
               }
-              models.push(
+              models2.push(
                 ...message.result.data.map((m) => m.model || m.id).filter((id) => typeof id === "string")
               );
               if (message.result?.nextCursor && ++pages < 20)
                 send({ id: 2, method: "model/list", params: { cursor: message.result.nextCursor } });
               else {
-                finish(void 0, models);
+                finish(void 0, models2);
                 return;
               }
             }
@@ -13123,19 +13422,20 @@ var SubscriptionService = class {
     this.failures.delete(provider);
     this.verified.delete(provider);
     this.usageCache = void 0;
-    const directory = await (0, import_promises3.mkdtemp)((0, import_node_path3.join)((0, import_node_os3.tmpdir)(), "nutegg-login-"));
+    const directory = await (0, import_promises4.mkdtemp)((0, import_node_path4.join)((0, import_node_os4.tmpdir)(), "nutegg-login-"));
+    this.ownedLoginDirectories.add(directory);
     login.directory = directory;
     if (!this.enabled() || this.closed || generation !== (this.loginGeneration.get(provider) || 0)) {
-      await (0, import_promises3.rm)(directory, { recursive: true, force: true });
+      await this.removeLoginDirectory(directory);
       throw new Error(t("subscriptionLoginCancelled"));
     }
-    const script = (0, import_node_path3.join)(directory, process.platform === "win32" ? "login.ps1" : `nutegg-login-${login.id}.command`);
+    const script = (0, import_node_path4.join)(directory, process.platform === "win32" ? "login.ps1" : `nutegg-login-${login.id}.command`);
     const unset = Object.keys(process.env).filter(
       (key) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) && !(key in this.environment(provider))
     );
-    const pidFile = (0, import_node_path3.join)(directory, "pid");
-    const activeFile = (0, import_node_path3.join)(directory, "active");
-    await (0, import_promises3.writeFile)(activeFile, "active");
+    const pidFile = (0, import_node_path4.join)(directory, "pid");
+    const activeFile = (0, import_node_path4.join)(directory, "active");
+    await (0, import_promises4.writeFile)(activeFile, "active");
     const body = process.platform === "win32" ? unset.map((key) => `Remove-Item Env:${key} -ErrorAction SilentlyContinue`).join("\n") + `
 if (!(Test-Path ${quote(activeFile)})) { exit }
 $cliProcess = Start-Process -FilePath ${quote(executable)} ${args.length ? "-ArgumentList @(" + args.map(quote).join(",") + ")" : ""} -NoNewWindow -PassThru
@@ -13160,17 +13460,17 @@ if [ $cli_status -eq 0 ]; then
   exit 0
 fi
 `;
-    await (0, import_promises3.writeFile)(script, body, { mode: 448 });
-    await (0, import_promises3.chmod)(script, 448);
+    await (0, import_promises4.writeFile)(script, body, { mode: 448 });
+    await (0, import_promises4.chmod)(script, 448);
     if (!this.enabled() || this.closed || generation !== (this.loginGeneration.get(provider) || 0)) {
       await this.cancelLogin(provider);
       throw new Error(t("subscriptionLoginCancelled"));
     }
     let child;
     if (process.platform === "darwin") {
-      child = (0, import_node_child_process4.spawn)("/usr/bin/open", ["-a", "Terminal", script], { shell: false });
+      child = (0, import_node_child_process5.spawn)("/usr/bin/open", ["-a", "Terminal", script], { shell: false });
     } else if (process.platform === "win32") {
-      child = (0, import_node_child_process4.spawn)("powershell.exe", ["-NoProfile", "-File", script], { shell: false, windowsHide: false });
+      child = (0, import_node_child_process5.spawn)(windowsSystemCommand("powershell"), ["-NoProfile", "-File", script], { shell: false, windowsHide: false });
     } else {
       let terminal = "x-terminal-emulator";
       for (const candidate of ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"]) {
@@ -13184,7 +13484,7 @@ fi
         await this.cancelLogin(provider);
         throw new Error(t("subscriptionLoginCancelled"));
       }
-      child = (0, import_node_child_process4.spawn)(terminal, terminal.endsWith("gnome-terminal") ? ["--", script] : ["-e", script], { shell: false });
+      child = (0, import_node_child_process5.spawn)(terminal, terminal.endsWith("gnome-terminal") ? ["--", script] : ["-e", script], { shell: false });
     }
     login.child = child;
     child.on("error", () => {
@@ -13213,9 +13513,9 @@ fi
       return;
     clearTimeout(login.timer);
     if (login.directory) {
-      await (0, import_promises3.rm)((0, import_node_path3.join)(login.directory, "active"), { force: true });
+      await (0, import_promises4.rm)((0, import_node_path4.join)(login.directory, "active"), { force: true });
       try {
-        const pid = Number((await (0, import_promises3.readFile)((0, import_node_path3.join)(login.directory, "pid"), "utf8")).trim());
+        const pid = Number((await (0, import_promises4.readFile)((0, import_node_path4.join)(login.directory, "pid"), "utf8")).trim());
         if (Number.isSafeInteger(pid) && pid > 1)
           process.kill(pid, "SIGTERM");
       } catch {
@@ -13224,14 +13524,14 @@ fi
     if (process.platform === "darwin" && login.directory) {
       try {
         const osaCmd = `tell application "Terminal" to close (every window whose name contains "nutegg-login-${login.id}.command")`;
-        (0, import_node_child_process4.spawn)("/usr/bin/osascript", ["-e", osaCmd], { stdio: "ignore" });
+        (0, import_node_child_process5.spawn)("/usr/bin/osascript", ["-e", osaCmd], { stdio: "ignore" });
       } catch {
       }
     }
     login.child?.kill();
     this.logins.delete(provider);
     if (login.directory)
-      await (0, import_promises3.rm)(login.directory, { recursive: true, force: true });
+      await this.removeLoginDirectory(login.directory);
   }
   cancelWork() {
     if (this.stopping)
@@ -13410,7 +13710,7 @@ var ConnectionAccess = class _ConnectionAccess {
 // src/connection-modal.ts
 var import_obsidian2 = require("obsidian");
 function approveChromeConnection(app, origin) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     class ConnectionModal extends import_obsidian2.Modal {
       approved = false;
       onOpen() {
@@ -13425,7 +13725,7 @@ function approveChromeConnection(app, origin) {
         );
       }
       onClose() {
-        resolve3(this.approved);
+        resolve4(this.approved);
         this.contentEl.empty();
       }
     }
@@ -13434,7 +13734,7 @@ function approveChromeConnection(app, origin) {
 }
 
 // src/main.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/settings.ts
 var import_obsidian3 = require("obsidian");
@@ -14235,10 +14535,10 @@ function repairTruncatedJson(jsonStr) {
     }
   }
   while (finalStack.length > 0) {
-    const open = finalStack.pop();
-    if (open === "{")
+    const open2 = finalStack.pop();
+    if (open2 === "{")
       text2 += "}";
-    else if (open === "[")
+    else if (open2 === "[")
       text2 += "]";
   }
   return text2;
@@ -16348,7 +16648,7 @@ ${questions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`;
 // src/settings.ts
 var DEFAULT_SETTINGS = {
   developerMode: false,
-  subscriptionEnabled: false,
+  subscriptionEnabled: true,
   aiAuthMethod: "apiKey",
   subscriptionModels: {},
   aiProvider: "anthropic",
@@ -16416,7 +16716,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     const mode = this.aiConnectionMode();
     if (mode === "chatgpt") {
       this.displayChatGPT(connectionBox);
-    } else if (settings.subscriptionEnabled && mode === "subscription") {
+    } else if (mode === "subscription") {
       this.displaySubscriptionSetup(connectionBox);
     }
     containerEl.createEl("h3", { text: t("vaultPathsHeader") });
@@ -16558,7 +16858,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     const approvals = connection?.pendingApprovals || 0;
     const clientText = clients ? t("connectionRecentClients", { count: String(clients) }) : t(approvals ? "connectionApprovalPending" : "connectionWaiting");
     paint(rows.chrome, clientText, clients ? "ready" : "waiting");
-    const selected = this.plugin.settings.subscriptionEnabled && this.plugin.settings.aiAuthMethod === "subscription";
+    const selected = this.plugin.settings.aiAuthMethod === "subscription";
     const runtime = selected ? this.plugin.subscriptions?.getRuntimeStatus() : void 0;
     if (this.plugin.settings.aiAuthMethod === "chatgpt") {
       const state = this.plugin.chatgpt?.status().state || "error";
@@ -16608,9 +16908,9 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
       return box;
     }
     const view = this.chatgptView;
-    const current = () => view === this.chatgptView && this.aiConnectionMode() !== "apiKey";
+    const current = () => view === this.chatgptView && this.aiConnectionMode() === mode;
     const selected = mode === "chatgpt" ? "chatgpt" : this.plugin.server?.execution?.state?.subscription.provider || settings.subscriptionSelection?.provider || settings.aiProvider;
-    new import_obsidian3.Setting(box).setName(`${t("aiMethod")} \xB7 ${t("subscriptionLabel")}`).setDesc(t("obsidianAIConnectionsDesc")).addDropdown((dropdown) => {
+    new import_obsidian3.Setting(box).setName(t("aiMethod")).setDesc(t("obsidianAIConnectionsDesc")).addDropdown((dropdown) => {
       if (!selected)
         dropdown.addOption("", t("chooseAIConnection"));
       dropdown.addOption("chatgpt", t("chatgptLabel"));
@@ -16680,7 +16980,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
   refreshAISettings() {
     const settings = this.plugin.getNativeSettings();
     const provider = PROVIDER_CATALOG[settings.aiProvider];
-    const authMethodLabel = settings.aiAuthMethod === "subscription" ? settings.subscriptionEnabled ? "subscriptionLabel" : "aiConnectionUnavailable" : "subscriptionApiKey";
+    const authMethodLabel = settings.aiAuthMethod === "subscription" ? "subscriptionLabel" : "subscriptionApiKey";
     this.aiConfigSummary?.setName(
       `${settings.aiAuthMethod === "subscription" ? this.subscriptionLabel(settings.aiProvider) : provider?.label || settings.aiProvider} \xB7 ${t(authMethodLabel)} \xB7 ${settings.aiModel}`
     );
@@ -16760,10 +17060,16 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     const current = () => this.chatgptCard === card && view === this.chatgptView && this.aiConnectionMode() === "chatgpt";
     card.createEl("h3", { text: t("chatgptLabel") });
     card.createEl("p", { text: t("chatgptTokenHint"), cls: "setting-item-description" });
+    card.createEl("p", { text: t("chatgptLocalStorageHint"), cls: "setting-item-description" });
     if (!service) {
       const statusLine2 = card.createEl("p", { cls: "nutegg-connection-status-line" });
       statusLine2.dataset.status = "disconnected";
       statusLine2.createSpan({ text: t("chatgptStorageUnavailable") });
+      if (this.plugin.chatgptStartupError)
+        card.createEl("p", {
+          text: t("chatgptStartupDiagnostic", { code: this.plugin.chatgptStartupError }),
+          cls: "setting-item-description"
+        });
       return;
     }
     const status = service.status();
@@ -16807,7 +17113,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     );
     if (status.state !== "ready")
       return;
-    const models = new import_obsidian3.Setting(card).setName(t("chatgptModel")).setDesc(t("checking"));
+    const models2 = new import_obsidian3.Setting(card).setName(t("chatgptModel")).setDesc(t("checking"));
     let request2 = 0;
     const load = async (force = false) => {
       if (!current())
@@ -16817,9 +17123,9 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
         const choices = await service.models(force);
         if (!current() || request2 !== generation)
           return;
-        models.setDesc("");
-        models.controlEl.empty();
-        models.addDropdown((dropdown) => {
+        models2.setDesc("");
+        models2.controlEl.empty();
+        models2.addDropdown((dropdown) => {
           if (!service.status().model)
             dropdown.addOption("", t("chatgptChooseModel"));
           for (const model of choices)
@@ -16828,7 +17134,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
         });
       } catch {
         if (current() && request2 === generation)
-          models.setDesc(t("chatgptError"));
+          models2.setDesc(t("chatgptError"));
       }
     };
     controls.addButton((button) => button.setButtonText(t("chatgptRefreshModels")).onClick(() => load(true)));
@@ -16839,6 +17145,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     this.subscriptionCard = card;
     card.createEl("h3", { text: this.subscriptionLabel(this.plugin.settings.aiProvider) });
     card.createEl("p", { text: t("subscriptionAccountSetup"), cls: "setting-item-description" });
+    card.createEl("p", { text: t("subscriptionLocalAccessHint"), cls: "setting-item-description" });
     let provider = ["openai", "anthropic", "google"].includes(this.plugin.settings.aiProvider) ? this.plugin.settings.aiProvider : "google";
     if (!["openai", "anthropic", "google"].includes(this.plugin.settings.aiProvider)) {
       this.plugin.settings.aiProvider = provider;
@@ -16872,16 +17179,16 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
       modelControls.empty();
       {
         const cached = this.plugin.settings.subscriptionModels?.[current];
-        let models = cached && cached.length > 0 ? [...cached] : [...DEFAULT_SUBSCRIPTION_MODELS[current] || ["auto"]];
-        if (!models.includes("auto"))
-          models.unshift("auto");
+        let models2 = cached && cached.length > 0 ? [...cached] : [...DEFAULT_SUBSCRIPTION_MODELS[current] || ["auto"]];
+        if (!models2.includes("auto"))
+          models2.unshift("auto");
         const currentModel = selectedModel(current);
-        const isCustom = !models.includes(currentModel) && currentModel !== "";
+        const isCustom = !models2.includes(currentModel) && currentModel !== "";
         let customInputSetting = null;
         let dropdownComponent = null;
         new import_obsidian3.Setting(modelControls).setName(t("subscriptionModelChoice")).setDesc(t("subscriptionModelChoiceDesc")).addDropdown((dropdown) => {
           dropdownComponent = dropdown;
-          for (const m of models) {
+          for (const m of models2) {
             dropdown.addOption(m, m === "auto" ? t("subscriptionAuto") : m);
           }
           dropdown.addOption("__custom__", t("customModelTag"));
@@ -16960,11 +17267,11 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
             if (!Array.isArray(fetched) || fetched.length === 0)
               throw new Error(t("settingsModelsUnavailable"));
             const normalized = fetched.includes("auto") ? fetched : ["auto", ...fetched];
-            const hasDiff = normalized.length !== models.length || normalized.some((m, i) => m !== models[i]);
+            const hasDiff = normalized.length !== models2.length || normalized.some((m, i) => m !== models2[i]);
             if (hasDiff) {
               (this.plugin.settings.subscriptionModels ||= {})[current] = normalized;
               await this.plugin.saveSettings();
-              models = normalized;
+              models2 = normalized;
               if (dropdownComponent && request2 === this.setupRequest) {
                 const selectEl = dropdownComponent.selectEl;
                 if (selectEl) {
@@ -17003,7 +17310,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
       } catch (error) {
         status = { state: "error", message: String(error) };
       }
-      const subActive = this.plugin.settings.subscriptionEnabled && this.plugin.settings.aiAuthMethod === "subscription";
+      const subActive = this.plugin.settings.aiAuthMethod === "subscription";
       if (request2 !== this.setupRequest || !subActive)
         return;
       this.accountState = status.state;
@@ -17049,7 +17356,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
                   this.plugin.subscriptions?.clearModelFailure?.(current);
                   const testModel = selectedModel(current);
                   outcome = await this.plugin.subscriptions.test(current, testModel);
-                  const subActive2 = this.plugin.settings.subscriptionEnabled && this.plugin.settings.aiAuthMethod === "subscription";
+                  const subActive2 = this.plugin.settings.aiAuthMethod === "subscription";
                   if (request2 !== this.setupRequest || !subActive2)
                     return;
                   const passed = outcome?.state === "ready";
@@ -17077,7 +17384,7 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
                 feedback = { text: String(error), error: true };
                 new import_obsidian3.Notice(feedback.text);
               } finally {
-                const subActive2 = this.plugin.settings.aiAuthMethod === "subscription" && this.plugin.settings.subscriptionEnabled;
+                const subActive2 = this.plugin.settings.aiAuthMethod === "subscription";
                 if (request2 === this.setupRequest && subActive2) {
                   showFeedback();
                   await refresh();
@@ -17177,26 +17484,24 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
     this.aiChunkWindow = new import_obsidian3.Setting(modelSection);
     this.aiMaxTokens = new import_obsidian3.Setting(modelSection);
     this.refreshAISettings();
-    if (settings.subscriptionEnabled && settings.aiAuthMethod === "subscription") {
-      for (const provider of ["openai", "anthropic", "google"]) {
-        new import_obsidian3.Setting(modelSection).setName(`${this.subscriptionLabel(provider)} \xB7 ${t("subscriptionPath")}`).setDesc(t("subscriptionPathHint")).addText((text2) => {
-          let currentVal = settings.subscriptionPaths?.[provider] || "";
-          if (!currentVal && this.plugin.subscriptions) {
-            void this.plugin.subscriptions.resolve(provider).then((autoPath) => {
-              if (autoPath && !text2.inputEl.value) {
-                text2.setValue(autoPath);
-                (settings.subscriptionPaths ||= {})[provider] = autoPath;
-                void this.plugin.saveSettings();
-              }
-            }).catch(() => {
-            });
-          }
-          text2.setValue(currentVal).onChange(async (value) => {
-            (settings.subscriptionPaths ||= {})[provider] = value.trim();
-            await this.plugin.saveSettings();
+    for (const provider of ["openai", "anthropic", "google"]) {
+      new import_obsidian3.Setting(modelSection).setName(`${this.subscriptionLabel(provider)} \xB7 ${t("subscriptionPath")}`).setDesc(t("subscriptionPathHint")).addText((text2) => {
+        let currentVal = settings.subscriptionPaths?.[provider] || "";
+        if (!currentVal && this.plugin.subscriptions) {
+          void this.plugin.subscriptions.resolve(provider).then((autoPath) => {
+            if (autoPath && !text2.inputEl.value) {
+              text2.setValue(autoPath);
+              (settings.subscriptionPaths ||= {})[provider] = autoPath;
+              void this.plugin.saveSettings();
+            }
+          }).catch(() => {
           });
+        }
+        text2.setValue(currentVal).onChange(async (value) => {
+          (settings.subscriptionPaths ||= {})[provider] = value.trim();
+          await this.plugin.saveSettings();
         });
-      }
+      });
     }
     containerEl.createEl("h3", { text: t("serverHeader") });
     new import_obsidian3.Setting(containerEl).setName(t("serverPort")).setDesc(t("serverPortDesc")).addText(
@@ -17223,6 +17528,30 @@ var NutEggSettingTab = class extends import_obsidian3.PluginSettingTab {
   displayLanguageSettings(containerEl, settings) {
   }
 };
+
+// src/vault-files.ts
+var import_obsidian4 = require("obsidian");
+function filesInFolder(vault, folder) {
+  if (!folder || folder.split("/").some((part) => !part || part === "." || part === "..") || folder.includes("\\"))
+    return [];
+  const root = vault.getAbstractFileByPath(folder);
+  if (!(root instanceof import_obsidian4.TFolder))
+    return [];
+  const files = [];
+  const visited = /* @__PURE__ */ new Set();
+  const pending = [...root.children].reverse();
+  while (pending.length) {
+    const entry = pending.pop();
+    if (visited.has(entry) || !entry.path.startsWith(`${folder}/`))
+      continue;
+    visited.add(entry);
+    if (entry instanceof import_obsidian4.TFolder)
+      pending.push(...[...entry.children].reverse());
+    else if (entry instanceof import_obsidian4.TFile)
+      files.push(entry);
+  }
+  return files;
+}
 
 // src/execution-coordinator.ts
 var import_node_crypto5 = require("crypto");
@@ -17577,13 +17906,13 @@ var ExecutionCoordinator = class {
     if (!job.session || this.sessions.get(job.session.sessionId) !== job.session)
       throw new AIError("cancelled", "Originating Chrome disconnected.");
     const callId = (0, import_node_crypto5.randomUUID)();
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const abort = () => this.finishCall(callId, new AIError("cancelled", "AI call cancelled."));
       const timer = setTimeout(
         () => this.finishCall(callId, new AIError("timeout", "AI call timed out. Retry explicitly.")),
         18e4
       );
-      this.calls.set(callId, { job, resolve: resolve3, reject, timer, abort });
+      this.calls.set(callId, { job, resolve: resolve4, reject, timer, abort });
       signal.addEventListener("abort", abort, { once: true });
       job.session.send({
         type: "ai-call",
@@ -17685,19 +18014,19 @@ var ExecutionCoordinator = class {
     );
     timer.unref?.();
   }
-  async withEggLock(path2, task) {
-    const previous = this.locks.get(path2) || Promise.resolve();
+  async withEggLock(path3, task) {
+    const previous = this.locks.get(path3) || Promise.resolve();
     let release;
-    const gate = new Promise((resolve3) => release = resolve3);
+    const gate = new Promise((resolve4) => release = resolve4);
     const tail = previous.then(() => gate);
-    this.locks.set(path2, tail);
+    this.locks.set(path3, tail);
     await previous;
     try {
       return await task();
     } finally {
       release();
-      if (this.locks.get(path2) === tail)
-        this.locks.delete(path2);
+      if (this.locks.get(path3) === tail)
+        this.locks.delete(path3);
     }
   }
   async dispose() {
@@ -17737,7 +18066,7 @@ var http2 = __toESM(require("http"));
 var import_crypto = require("crypto");
 
 // src/index-sync.ts
-var import_obsidian4 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/templates/index.md
 var templates_default = '# NutEgg Egg Index\n\n> [!abstract]- Instructions:\n> - Add one line per egg file: "* $path: $description_of_what_it_covers"\n> - Process only the lines beginning with *\n\n\n* nutegg/investment.md: investment strategies, market analysis, portfolio management\n* nutegg/investment_ama_podcast.md: investment-related AMAs, interviews, and podcasts. Capture useful question\u2013answer exchanges and substantive discussion topics\n* nutegg/society.md: geopolitics, class dynamics, global conflict, political economy\n* nutegg/psychology.md: cognitive biases, mental models, behavioral psychology, decision making\n* nutegg/ai_ml.md: artificial intelligence, machine learning, LLMs, AGI, prompt engineering\n';
@@ -17996,10 +18325,10 @@ var EXAMPLE_EGGS = [
 // ../shared/src/egg-parser.ts
 var KNOWLEDGE_HEADING = "# Knowledge";
 var UNPROCESSED_HEADING = "# Unprocessed";
-function isEggPath(path2, vaultFolder = "nutegg") {
-  if (!path2 || typeof path2 !== "string")
+function isEggPath(path3, vaultFolder = "nutegg") {
+  if (!path3 || typeof path3 !== "string")
     return false;
-  const normalized = path2.replace(/\\/g, "/").replace(/^\/+/, "");
+  const normalized = path3.replace(/\\/g, "/").replace(/^\/+/, "");
   const folder = (vaultFolder || "").replace(/^\/+|\/+$/g, "");
   if (folder) {
     if (!normalized.startsWith(folder + "/"))
@@ -18163,10 +18492,10 @@ function resolveEggPath(fileName, vaultFolder = "nutegg") {
   if (typeof fileName !== "string" || !fileName || fileName.includes("\\"))
     return null;
   const folder = (vaultFolder || "nutegg").replace(/\/+$/, "");
-  const path2 = fileName.includes("/") ? fileName : `${folder}/${fileName}`;
-  if (path2.split("/").some((part) => !part || part === "." || part === ".."))
+  const path3 = fileName.includes("/") ? fileName : `${folder}/${fileName}`;
+  if (path3.split("/").some((part) => !part || part === "." || part === ".."))
     return null;
-  return isEggPath(path2, folder) ? path2 : null;
+  return isEggPath(path3, folder) ? path3 : null;
 }
 var EggParser = class {
   plugin;
@@ -18175,16 +18504,16 @@ var EggParser = class {
   }
   async findFile(fileName) {
     const folder = this.plugin.vaultFolder || "nutegg";
-    const path2 = resolveEggPath(fileName, folder);
-    if (!path2)
+    const path3 = resolveEggPath(fileName, folder);
+    if (!path3)
       return null;
     const vault = this.plugin.app.vault;
-    const exists = await vault.adapter.exists(path2);
-    const files = vault.getMarkdownFiles().filter((file2) => resolveEggPath(file2.path, folder) === file2.path);
-    const exact = exists && files.find((file2) => file2.path === path2);
+    const exists = await vault.adapter.exists(path3);
+    const files = filesInFolder(vault, folder).filter((file2) => resolveEggPath(file2.path, folder) === file2.path);
+    const exact = exists && files.find((file2) => file2.path === path3);
     if (exact)
       return { file: exact, path: exact.path };
-    const matches = files.filter((file2) => file2.path.toLowerCase() === path2.toLowerCase());
+    const matches = files.filter((file2) => file2.path.toLowerCase() === path3.toLowerCase());
     if (matches.length !== 1)
       return null;
     const file = matches[0];
@@ -18194,16 +18523,16 @@ var EggParser = class {
     this.assertEggFile(file, matchedPath);
     return { file, path: matchedPath };
   }
-  assertEggFile(file, path2) {
-    if (file.path !== path2 || resolveEggPath(file.path, this.plugin.vaultFolder || "nutegg") !== path2) {
-      throw new Error(`Egg file moved or is outside the egg folder: ${path2}`);
+  assertEggFile(file, path3) {
+    if (file.path !== path3 || resolveEggPath(file.path, this.plugin.vaultFolder || "nutegg") !== path3) {
+      throw new Error(`Egg file moved or is outside the egg folder: ${path3}`);
     }
   }
   async processFile(target, transform) {
-    const { file, path: path2 } = target;
-    this.assertEggFile(file, path2);
+    const { file, path: path3 } = target;
+    this.assertEggFile(file, path3);
     const guardedTransform = (content) => {
-      this.assertEggFile(file, path2);
+      this.assertEggFile(file, path3);
       return transform(content);
     };
     const vault = this.plugin.app.vault;
@@ -18225,11 +18554,11 @@ var EggParser = class {
       console.warn(`[NutEgg] Egg file not found: ${fileName}`);
       return null;
     }
-    const { file, path: path2 } = target;
-    this.assertEggFile(file, path2);
+    const { file, path: path3 } = target;
+    this.assertEggFile(file, path3);
     const content = await this.plugin.app.vault.read(file);
-    this.assertEggFile(file, path2);
-    const parsed2 = this.parseEggFile(path2, content);
+    this.assertEggFile(file, path3);
+    const parsed2 = this.parseEggFile(path3, content);
     if (fallbackDescription && !parsed2.indexDescription) {
       parsed2.indexDescription = fallbackDescription;
     }
@@ -18456,7 +18785,7 @@ var IndexSync = class {
         modified = modified || mod2;
       }
       if (modified) {
-        new import_obsidian4.Notice(t("indexEggRemoved", { path: filePath }));
+        new import_obsidian5.Notice(t("indexEggRemoved", { path: filePath }));
       }
       this.notifyDiffChanged();
     } finally {
@@ -18481,7 +18810,7 @@ var IndexSync = class {
         if (oldBase) {
           await this.rewriteIndexPath(indexFile, oldBase, newPath);
         }
-        new import_obsidian4.Notice(t("indexPathRenamed", { oldPath, newPath }));
+        new import_obsidian5.Notice(t("indexPathRenamed", { oldPath, newPath }));
       } else if (wasEgg && !isEgg) {
         await this.removeIndexEntry(indexFile, oldPath);
       } else {
@@ -18515,7 +18844,7 @@ var IndexSync = class {
   async getDiffStatus() {
     const folder = this.plugin.vaultFolder || "nutegg";
     const norm = (p) => resolveEggPath(p, folder) || "";
-    const eggFilesOnDisk = (this.plugin.app.vault.getMarkdownFiles?.() || []).filter((f) => isEggPath(f.path, folder)).map((f) => f.path);
+    const eggFilesOnDisk = filesInFolder(this.plugin.app.vault, this.plugin.vaultFolder || "nutegg").filter((f) => isEggPath(f.path, folder)).map((f) => f.path);
     const diskSet = new Set(eggFilesOnDisk);
     const indexContent = await this.plugin.indexReader.getIndexContent();
     if (indexContent === "(No _index.md found)") {
@@ -18601,7 +18930,7 @@ var IndexSync = class {
       console.log(`[NutEgg] Pruned ${result.prunedIndexEntries.length} invalid entries from index`);
     }
     if (options2?.syncUnindexed && indexFile) {
-      const diskEggFiles = (this.plugin.app.vault.getMarkdownFiles?.() || []).filter((f) => isEggPath(f.path, folder));
+      const diskEggFiles = filesInFolder(this.plugin.app.vault, this.plugin.vaultFolder || "nutegg").filter((f) => isEggPath(f.path, folder));
       const indexedTargets = new Set(entries.map((e) => norm(e.fileName)));
       for (const file of diskEggFiles) {
         if (!indexedTargets.has(file.path)) {
@@ -18836,8 +19165,8 @@ ${line}
     console.log(`[NutEgg] Created egg from index entry: ${targetPath}`);
     return { path: targetPath, language: detectedLanguage };
   }
-  async ensureParentFolders(path2) {
-    const parts = path2.split("/").slice(0, -1);
+  async ensureParentFolders(path3) {
+    const parts = path3.split("/").slice(0, -1);
     let currentPath = "";
     for (const part of parts) {
       currentPath += (currentPath ? "/" : "") + part;
@@ -18870,7 +19199,7 @@ var NutEggServer = class {
     this.execution = new ExecutionCoordinator(
       ExecutionCoordinator.initial(
         plugin.settings.executionState,
-        plugin.settings.subscriptionEnabled === true,
+        true,
         plugin.settings.subscriptionSelection,
         plugin.settings.aiAuthMethod
       ),
@@ -18885,7 +19214,7 @@ var NutEggServer = class {
       revision: 1,
       accountLabel: "",
       model: "",
-      message: "ChatGPT local credential storage is unavailable."
+      message: [t("chatgptStorageUnavailable"), plugin.chatgptStartupError ? t("chatgptStartupDiagnostic", { code: plugin.chatgptStartupError }) : ""].filter(Boolean).join(" ")
     };
   }
   executor(settings, signal) {
@@ -18931,7 +19260,7 @@ var NutEggServer = class {
       eggParser: this.plugin.eggParser,
       indexReader: this.plugin.indexReader,
       app: this.plugin.app,
-      withEggLock: (path2, task) => this.execution.withEggLock(resolveEggPath(path2, this.plugin.vaultFolder) || path2, async () => {
+      withEggLock: (path3, task) => this.execution.withEggLock(resolveEggPath(path3, this.plugin.vaultFolder) || path3, async () => {
         assertActive();
         return task();
       })
@@ -18975,12 +19304,6 @@ var NutEggServer = class {
     } finally {
       this.execution.complete(job);
     }
-  }
-  async changeAvailability(enabled) {
-    return this.execution.change(this.execution.state.revision, (0, import_node_crypto6.randomUUID)(), {
-      subscriptionAvailable: enabled,
-      mode: !enabled && this.execution.state.mode === "subscription" ? "apiKey" : this.execution.state.mode
-    });
   }
   async changeSubscription(selection) {
     return this.execution.change(this.execution.state.revision, (0, import_node_crypto6.randomUUID)(), { subscription: selection });
@@ -19227,7 +19550,7 @@ var NutEggServer = class {
   /** Count egg files (direct markdown notes under vaultFolder/, excluding system files). */
   countEggs() {
     const folder = this.plugin.vaultFolder || "nutegg";
-    return this.plugin.app.vault.getMarkdownFiles().filter((f) => isEggPath(f.path, folder)).length;
+    return filesInFolder(this.plugin.app.vault, folder).filter((f) => isEggPath(f.path, folder)).length;
   }
   /** Insert a capture entry into the SQLite DB if available. */
   recordNut(capture, result) {
@@ -19345,8 +19668,8 @@ var NutEggServer = class {
             return;
           }
           const data = JSON.parse(await this.readBody(req, 4096));
-          const access3 = this.plugin.connectionAccess;
-          const result = req.url === "/connection/start" ? access3.start(clientOrigin, data.nonce, requestOrigin) : access3.finish(clientOrigin, data.nonce);
+          const access4 = this.plugin.connectionAccess;
+          const result = req.url === "/connection/start" ? access4.start(clientOrigin, data.nonce, requestOrigin) : access4.finish(clientOrigin, data.nonce);
           res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
           res.end(JSON.stringify(result));
           return;
@@ -19389,7 +19712,6 @@ var NutEggServer = class {
             aiProvider: config.aiProvider,
             aiModel: config.aiModel,
             aiSource: config.aiSource === "openrouter" ? "openrouter" : "official",
-            aiModelFamily: typeof config.aiModelFamily === "string" ? config.aiModelFamily.slice(0, 512) : void 0,
             ...config.localEndpoint ? { localEndpoint: config.localEndpoint } : {},
             localApiType: config.localApiType === "ollama" ? "ollama" : "openai",
             ...publicExecutionSettings({
@@ -19493,7 +19815,7 @@ var NutEggServer = class {
             return;
           }
           const provider = data.provider;
-          if (!this.plugin.settings.subscriptionEnabled || this.plugin.settings.aiAuthMethod !== "subscription") {
+          if (this.plugin.settings.aiAuthMethod !== "subscription") {
             res.writeHead(403);
             res.end(
               JSON.stringify({
@@ -19546,7 +19868,7 @@ var NutEggServer = class {
               ],
               instanceId: this.execution.state.instanceId,
               protocolVersion: EXECUTION_PROTOCOL,
-              subscriptionEnabled: this.plugin.settings.subscriptionEnabled === true,
+              subscriptionEnabled: true,
               port: this.port,
               version: this.plugin.manifest?.version || "",
               timestamp: Date.now()
@@ -19625,10 +19947,10 @@ var NutEggServer = class {
       }
     });
     this.attachWebSocket();
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       this.server.listen(this.port, "127.0.0.1", () => {
         console.log(`[NutEgg] Server running on http://127.0.0.1:${this.port}`);
-        resolve3();
+        resolve4();
       });
       this.server.on("error", (err) => {
         console.error("[NutEgg] Server error:", err);
@@ -20117,8 +20439,8 @@ var NutEggServer = class {
   async lockConfirmation(key) {
     const previous = this.confirmationQueues.get(key);
     let release;
-    const gate = new Promise((resolve3) => {
-      release = resolve3;
+    const gate = new Promise((resolve4) => {
+      release = resolve4;
     });
     this.confirmationQueues.set(key, gate);
     await previous;
@@ -20330,7 +20652,7 @@ var NutEggServer = class {
     const cached = this.requestBodies.get(req);
     if (cached !== void 0)
       return Promise.resolve(cached);
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       let data = "";
       let bytes = 0;
       let settled = false;
@@ -20347,7 +20669,7 @@ var NutEggServer = class {
       req.on("end", () => {
         if (!settled) {
           settled = true;
-          resolve3(data);
+          resolve4(data);
         }
       });
       req.on("error", (err) => {
@@ -20366,11 +20688,11 @@ var NutEggServer = class {
     this.wss?.close();
     if (!this.server)
       return;
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       this.server.close(() => {
         console.log("[NutEgg] Server stopped");
         this.server = null;
-        resolve3();
+        resolve4();
       });
     });
   }
@@ -20380,6 +20702,7 @@ var NutEggServer = class {
 };
 
 // src/knowledge-base.ts
+var import_obsidian6 = require("obsidian");
 var import_crypto2 = require("crypto");
 var KnowledgeBase = class {
   plugin;
@@ -20502,8 +20825,8 @@ var KnowledgeBase = class {
     const vault = this.plugin.app.vault;
     if (!await vault.adapter.exists(fileName))
       throw new Error(`Nut not found: ${fileName}`);
-    const file = vault.getMarkdownFiles().find((file2) => file2.path === fileName);
-    if (!file)
+    const file = vault.getAbstractFileByPath(fileName);
+    if (!(file instanceof import_obsidian6.TFile))
       throw new Error(`Nut not found: ${fileName}`);
     const transform = (content) => {
       const marker = "\n# NutEgg Analysis\n\n```json\n";
@@ -20745,6 +21068,7 @@ var IndexReader = class {
 };
 
 // src/db.ts
+var import_node_path5 = require("path");
 function loadSqliteModule() {
   try {
     return require("node:sqlite").DatabaseSync;
@@ -20774,14 +21098,17 @@ var NutEggDatabase = class {
       if (!DatabaseSync) {
         throw new Error("node:sqlite is not available in this Obsidian version");
       }
-      await this.ensureFolder(this.dbPath.split("/").slice(0, -1).join("/"));
       const basePath = this.plugin.app.vault.adapter.getBasePath();
-      this.db = new DatabaseSync(`${basePath}/${this.dbPath}`);
+      const target = vaultDatabasePath(basePath, this.dbPath);
+      const folder = (0, import_node_path5.relative)(basePath, (0, import_node_path5.dirname)(target)).split(import_node_path5.sep).join("/");
+      if (folder)
+        await this.ensureFolder(folder);
+      this.db = new DatabaseSync(vaultDatabasePath(basePath, this.dbPath));
       this.db.exec("PRAGMA journal_mode = DELETE;");
       this.createSchema();
       console.log("[NutEgg] SQLite database ready:", this.dbPath);
     } catch (err) {
-      console.error("[NutEgg] SQLite unavailable \u2014 dedup cache, replay and search disabled:", err);
+      console.error("[NutEgg] SQLite unavailable \u2014 dedup cache, replay and search disabled.");
       this.db = null;
     }
   }
@@ -21068,7 +21395,7 @@ function makeSnippet(text2, terms) {
 }
 
 // src/merge-widget.ts
-var import_obsidian5 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 var import_view = require("@codemirror/view");
 function editorFilePath(plugin, view) {
   for (const leaf of plugin.app.workspace.getLeavesOfType("markdown")) {
@@ -21077,8 +21404,8 @@ function editorFilePath(plugin, view) {
   }
   return "";
 }
-function isScopedEgg(plugin, path2) {
-  return !!path2 && resolveEggPath(path2, plugin.vaultFolder || "nutegg") === path2;
+function isScopedEgg(plugin, path3) {
+  return !!path3 && resolveEggPath(path3, plugin.vaultFolder || "nutegg") === path3;
 }
 function findInstructionTargetLine(docText) {
   const lines = docText.split("\n");
@@ -21177,7 +21504,7 @@ function appendWorkflowUpdateNotice(plugin, container) {
     if (folder && pending[0]) {
       const filePath = `${folder}/${pending[0]}`;
       const file = plugin.app?.vault?.getAbstractFileByPath?.(filePath);
-      if (file instanceof import_obsidian5.TFile && plugin.app?.workspace?.getLeaf) {
+      if (file instanceof import_obsidian7.TFile && plugin.app?.workspace?.getLeaf) {
         plugin.app.workspace.getLeaf().openFile(file);
       }
     }
@@ -21256,20 +21583,20 @@ function registerMergeWidget(plugin) {
         try {
           const result = await runMerge(plugin, ctx.sourcePath, null);
           if (result && result.entries > 0) {
-            new import_obsidian5.Notice(t("mergedEntries", { count: result.entries }));
+            new import_obsidian7.Notice(t("mergedEntries", { count: result.entries }));
             button.textContent = t("mergedSuccess");
             badge.textContent = t("treeUpToDate");
             setTimeout(() => {
               button.remove();
             }, 2e3);
           } else {
-            new import_obsidian5.Notice(t("mergeNoChanges"));
+            new import_obsidian7.Notice(t("mergeNoChanges"));
             button.disabled = false;
             button.textContent = originalText;
           }
         } catch (err) {
           console.error("[NutEgg] Merge button click failed:", err);
-          new import_obsidian5.Notice(t("mergeFailed", { error: err instanceof Error ? err.message : String(err) }));
+          new import_obsidian7.Notice(t("mergeFailed", { error: err instanceof Error ? err.message : String(err) }));
           button.disabled = false;
           button.textContent = originalText;
         }
@@ -21316,15 +21643,15 @@ var MergeButtonWidget = class extends import_view.WidgetType {
         try {
           const result = await runMerge(this.plugin, this.filePath, this.view.state.doc.toString());
           if (result && result.entries > 0) {
-            new import_obsidian5.Notice(t("mergedEntries", { count: result.entries }));
+            new import_obsidian7.Notice(t("mergedEntries", { count: result.entries }));
           } else {
-            new import_obsidian5.Notice(t("mergeNoChanges"));
+            new import_obsidian7.Notice(t("mergeNoChanges"));
             button.disabled = false;
             button.textContent = originalText;
           }
         } catch (err) {
           console.error("[NutEgg] Editor merge failed:", err);
-          new import_obsidian5.Notice(t("mergeFailed", { error: err instanceof Error ? err.message : String(err) }));
+          new import_obsidian7.Notice(t("mergeFailed", { error: err instanceof Error ? err.message : String(err) }));
           button.disabled = false;
           button.textContent = originalText;
         }
@@ -21405,9 +21732,9 @@ function registerMergeEditorExtension(plugin) {
 }
 
 // src/index-widget.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var import_view2 = require("@codemirror/view");
-var CreateEggModal = class extends import_obsidian6.Modal {
+var CreateEggModal = class extends import_obsidian8.Modal {
   plugin;
   defaultName;
   defaultDescription;
@@ -21469,7 +21796,7 @@ var CreateEggModal = class extends import_obsidian6.Modal {
       const safeName = sanitizeEggName(nameInput.value);
       const description = descInput.value.trim();
       if (!safeName) {
-        new import_obsidian6.Notice(t("eggNameRequired"));
+        new import_obsidian8.Notice(t("eggNameRequired"));
         nameInput.focus();
         return;
       }
@@ -21481,9 +21808,9 @@ var CreateEggModal = class extends import_obsidian6.Modal {
         const result = await this.plugin.indexSync.createEgg(safeName, description);
         this.close();
         if (result.alreadyExists) {
-          new import_obsidian6.Notice(t("eggAlreadyExists", { path: result.path }));
+          new import_obsidian8.Notice(t("eggAlreadyExists", { path: result.path }));
         } else {
-          new import_obsidian6.Notice(t("eggCreated", { path: result.path }));
+          new import_obsidian8.Notice(t("eggCreated", { path: result.path }));
         }
         const file = this.app.vault.getAbstractFileByPath(result.path);
         if (file) {
@@ -21492,7 +21819,7 @@ var CreateEggModal = class extends import_obsidian6.Modal {
         }
       } catch (err) {
         console.error("[NutEgg] Failed to create egg from modal:", err);
-        new import_obsidian6.Notice(t("createEggFailed", { error: err instanceof Error ? err.message : String(err) }));
+        new import_obsidian8.Notice(t("createEggFailed", { error: err instanceof Error ? err.message : String(err) }));
         submitBtn.disabled = false;
         cancelBtn.disabled = false;
         submitBtn.textContent = originalText;
@@ -21562,13 +21889,13 @@ function renderSyncButton(plugin, container) {
         parts.push(t("indexPathsNormalized", { count: res.fixedIndexPaths.length }));
       }
       if (parts.length > 0) {
-        new import_obsidian6.Notice(t("indexSynced", { summary: parts.join(", ") }));
+        new import_obsidian8.Notice(t("indexSynced", { summary: parts.join(", ") }));
       } else {
-        new import_obsidian6.Notice(t("indexAllSynced"));
+        new import_obsidian8.Notice(t("indexAllSynced"));
       }
       await update();
     } catch (err) {
-      new import_obsidian6.Notice(t("indexSyncFailed", { error: err instanceof Error ? err.message : String(err) }));
+      new import_obsidian8.Notice(t("indexSyncFailed", { error: err instanceof Error ? err.message : String(err) }));
       btn.textContent = originalText;
     } finally {
       btn.disabled = false;
@@ -21758,7 +22085,7 @@ function registerIndexEditorExtension(plugin) {
 }
 
 // src/workflow-manager.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // ../shared/workflow/README.md
 var README_default = "# NutEgg AI Workflow & Prompt Reference\n\nThese shared prompts power the extension and Obsidian plugin. Customize the Action Guide and Key Questions in each egg to highlight AMA answers, recurring video questions, or other results useful to you.\n\n## Pipeline\n\n```text\nCaptured content\n  \u2192 Stage 1: summary, title verdict, mind map, Q&A, plus discussion analysis (when enabled)\n  \u2192 Summary-based egg routing and egg selection\n  \u2192 Stage 2: egg-analysis (one call per egg for short content, with discussion signals)\n  \u2192 Answers, extracted entries, and reading recommendation\n  \u2192 User clicks Hatch: archive originals and append to # Unprocessed\n  \u2192 Merge at 20 pending entries or on demand: dedupe and organize # Knowledge\n```\n\nChanging selected eggs reuses the existing Stage 1 result. Stage 2 runs only for selected eggs without a captured result; previously analyzed eggs are displayed from the capture cache. Deselecting an egg hides its result while retaining it for reselection. Only currently selected eggs contribute to the reading recommendation and Hatch entries. Running a fresh Stage 1 analysis clears this cache.\n\nStage 2 reads the source and egg instructions, never the Knowledge tree or Unprocessed queue. Reading recommendations assess usefulness for your preferences rather than novelty against your notes. Hatch is independent of the recommendation: useful answers can be saved even when the original is skippable. There is no automatic Hatch.\n\n## Knowledge-entry generation\n\nStage 2 uses the Stage 1 mind map to navigate relevant concepts and source locations, while the egg\u2019s Scope, Action Guide and Formatting Rules decide what becomes an entry. Raw source evidence remains authoritative.\n\nSet `> **Generate Knowledge Entries:** no` in an egg\u2019s Instructions callout to disable entries for that egg. Omitting the setting or using `yes` permits generation. An opt-out in the Action Guide is also honored by the prompt.\n\nThe **\u{1F343} Knowledge** option in **Analysis Sections** and the Egg Analysis dropdown share one per-tab setting. Choosing **\u{1F95A} Analysis only** turns Knowledge off on both pages; choosing **\u{1F343} Include knowledge** turns it on. Toggling Knowledge updates the dropdown\u2019s checkmark and button label. Switching choices in the dropdown or section selector updates the setting without auto-triggering; click the Egg Analysis button to start an AI call.\n\nKnowledge-entry generation follows these rules:\n\n| UI setting | Egg instructions | Result |\n|---|---|---|\n| Off / Analysis only | Any | No new knowledge entries; existing entries stay visible |\n| On / Include knowledge | Explicit `no`, or Action Guide opts out | No entries for that egg |\n| On / Include knowledge | `yes` or unspecified | Generate entries according to the egg instructions |\n\nEither an off UI setting or an egg opt-out disables generation; an on setting never overrides an opt-out. The initial default is **Include knowledge**. Your last choice is saved as the default for tabs without analysis, including after reopening the panel. Processed tabs retain their own choice. Key-question answers and reading recommendations are produced regardless. Generation does not save to egg files: **\u{1F423} Hatch Egg** is the separate save action, enabled when generated entries are available.\n\nChanging the generation setting does not hide or remove entries already generated, and those entries remain available to Hatch. When switching from answers-only to include knowledge for an egg lacking generated knowledge entries, NutEgg automatically reruns Stage 2 rather than simply showing the cached answers-only analysis; eggs that explicitly opt out are not rerun just to request entries.\n\n\n## Egg structure\n\nKeep structural labels in English, including in localized eggs:\n\n```markdown\n> [!abstract]- Instructions:\n> **Scope:** Agent architectures and practical tradeoffs.\n> **Action Guide:** Highlight substantial questions, important answers, and limitations.\n> **Key Questions:**\n> - Which failure modes are demonstrated?\n> **Worth Reading If:**\n> - Practical examples or tradeoffs need attention beyond the summary.\n> **Skip If:**\n> - Mostly introductory definitions or promotion.\n> **Formatting Rules:** Use concise answers with source locations.\n\n# Knowledge\n\n# Unprocessed\n```\n\nWorth Reading If and Skip If only guide recommendations; they never remove entries during merge. Existing Rejection Criteria sections require manual migration into Skip If. Do not ask Stage 2 to compare with existing notes, which it cannot see.\n\n## Prompt directory\n\n| File | Purpose | Main output |\n|---|---|---|\n| `content-analysis.md` | Stage 1 source analysis | Title verdict, summary, mind map, Q&A |\n| `content-task-default.md` | Shared Stage 1 task fragment | Injected tasks |\n| `egg-routing.md` | Match eggs from the Stage 1 summary | Matched eggs |\n| `egg-analysis.md` | Follow one egg\u2019s instructions | `keyQuestionAnswers`, `extractedEntries`, `readAction`, `readVerdictReason`, `readingSources`, `language` |\n| `aggregate-content.md` | Combine long-content Stage 1 results | Whole-source summary and answers |\n| `aggregate-egg.md` | Combine compact chunk answer drafts, recommendations, and coverage | Whole-source key answers and recommendation only |\n| `discussion-analysis.md` | Extract topics, arguments, examples, and stances from captured discussion | `topics`, `arguments`, `examples`, `stances` |\n| `aggregate-discussion.md` | Merge related discussion topics and synthesize thread perspectives across batches | Unified discussion synthesis and topic threads |\n| `merge-unprocessed.md` | Assemble fragments and consolidate duplicate claims | Complete `knowledge` and remaining `unprocessed` |\n| `follow-up.md` | Answer follow-up questions | Answers with source references |\n| `localize-egg.md` | Localize an egg\u2019s instructions | Markdown with English structural labels |\n| `shared-output-rules.md` | Shared grounding and language rules | Injected rules |\n\nFor content over 30k characters, Stage 2 analyzes each chunk then aggregates only answer drafts, recommendation notes, and coverage metadata. Aggregation never receives raw content, extracted entries, or the Knowledge tree. Chunk entries remain in source order until merge assembles them.\n\n`readAction` is `full`, `highlights`, `summary`, `skip`, or `uncertain`. Code derives `readVerdict`: true for full/highlights, false for summary/skip, null for uncertain. Missing or invalid recommendations are uncertain. Stage 1\u2019s enabled title verdict and core summary are small context signals; source evidence controls the decision. Partial failures preserve successful entries and make the recommendation uncertain.\n\n## Saving and merging\n\nHatch archives original analyses and source references in the nut and history, then appends useful entries and supported key answers to Unprocessed. Threshold merges run after saving, so they do not delay Hatch acknowledgement. Merge preserves distinct examples, qualifications, disagreements, and provenance; it does not silently discard a claim because of Skip If. It serializes work per egg and checks the note snapshot before applying results. Malformed responses leave the note untouched; very large trees defer merging when the output budget cannot safely hold them.\n\n## Customization and updates\n\nPreserve `{{placeholders}}`, exact JSON schema keys, and English structural labels such as `# Knowledge` and `# Unprocessed`. Edited workflow files remain untouched during updates; new defaults are supplied as `.new.md` for review. Unmodified obsolete prompts are removed. Missing new recommendation fields in customized prompts display uncertain. Use Defaults backs up customized files before restoring built-in prompts.\n\nThe Chrome extension offers a per-tab **Knowledge** option in **Analysis Sections** on both the content and analysis pages. The top Egg Analysis button beside Collect Nut Only displays the current action (e.g. **\u{1F95A} Egg Analysis** for answers/verdicts only, or **\u{1F95A} Egg Analysis \u{1F343}** when knowledge entries are enabled). Clicking the button label runs analysis with the currently selected choice; clicking its dropdown arrow opens the mode selector (**\u{1F95A} Analysis only** vs **\u{1F343} Include knowledge**). Switching modes updates the button label and checkmark without auto-triggering; click the button again to execute the run. Neither action saves directly to the egg file: the separate bottom **\u{1F423} Hatch Egg** button saves generated entries and supported key answers to egg files once entries are generated. The **\u{1F343} Knowledge** analysis-section option controls entry generation across both pages.\n\nOn the top Egg Analysis button beside Collect Nut Only, clicking the analysis label runs the current mode; clicking its separate arrow opens the two analysis choices. Selecting a choice updates the mode; clicking the button runs it. Egg selection changes do not open the menu. The top Egg Analysis and Collect Nut Only controls remain visible throughout connected-mode results.\n\n## Cross-tab analysis activity\n\nWhile the side panel stays open, the indicator below its header counts running analyses and completed results you have not viewed in the current Chrome window. Click it to list unread completions first and running tabs second. Selecting a completed tab switches to its analysis without rerunning it; selecting a running tab opens its current progress.\n\nResults count as read when the latest analysis is shown in the active tab with the panel visible, including completion while you are already viewing it. Content previews do not mark results read. In Full mode, automatic Stage 1\u2192Stage 2 processing counts as one running tab; in Preview mode, Stage 1 completes and pauses for user review, and a subsequent Stage 2 run can produce a new unread result. Cached-only changes, Hatch, and follow-up questions do not create notifications. Closed or navigated tabs are removed. This tracker resets when the panel closes; it does not persist across sessions or add a toolbar badge.\n\n### Discussion\n\nDiscussion analysis executes as part of **Stage 1** when:\n1. The **\u{1F4AC} Discussion** section is enabled (`capture.enabledSections.discussion === true`) in Extension Options or popup Analysis Sections.\n2. The page extractor captures discussion items (such as YouTube comments, Twitter replies, Reddit/forum threads, Bilibili comments, or Zhihu answers).\n\n**Execution flow within Stage 1:**\n- **Batch Processing**: When enabled, `discussion-analysis.md` runs across batches of captured comments to identify 3\u20135 core debating topics, classify commenter stances (`agree`, `disagree`, `mixed`, `neutral`, `unclear`), and highlight insightful firsthand experiences or corrections (`supplement: true`).\n- **Multi-Batch Aggregation**: For long comment threads spanning multiple batches, `aggregate-discussion.md` consolidates and unifies the topics and stance distributions.\n- **Stage 1 Context Injection**: Discussion summaries and verbatim evidence become part of the Stage 1 result and are supplied to body analysis and custom Q&A. On forum threads or video pages without transcripts, this allows the AI to ground summaries directly on community discourse.\n- **Stage 2 Context Injection**: Discussion signals (`discussionSummaryText` and `discussionEvidenceText`) from Stage 1 are also passed into `egg-analysis.md` so that eggs can evaluate community consensus, counterexamples, and user reports against their specific instructions. (If discussion was initially omitted during Stage 1 but enabled for Stage 2, it lazily runs before Stage 2).\n- Original comment IDs, parent context and reaction metadata stay attached to the capture. Models supply classifications; NutEgg calculates sample metrics from source records. Empty results differ from unloaded or unavailable comments. Source comments are reports, not verified author claims.\n";
@@ -21904,7 +22231,7 @@ var WorkflowManager = class {
       } else {
         try {
           let vaultContent;
-          if (file instanceof import_obsidian7.TFile) {
+          if (file instanceof import_obsidian9.TFile) {
             vaultContent = await this.plugin.app.vault.read(file);
           } else {
             vaultContent = await this.plugin.app.vault.adapter.read(filePath);
@@ -21945,7 +22272,7 @@ var WorkflowManager = class {
               try {
                 await this.plugin.app.vault.create(newPath, builtinContent);
                 console.log(`[NutEgg] Saved updated workflow template to: ${newPath}`);
-                new import_obsidian7.Notice(`[NutEgg] ${t("workflowUpdateNotice", { files: `${baseName}.new.md` })}`, 1e4);
+                new import_obsidian9.Notice(`[NutEgg] ${t("workflowUpdateNotice", { files: `${baseName}.new.md` })}`, 1e4);
               } catch {
               }
             }
@@ -21986,12 +22313,7 @@ var WorkflowManager = class {
   getWorkflowFiles() {
     const folder = this.workflowFolder;
     const vault = this.plugin.app.vault;
-    let allFiles = [];
-    if (typeof vault.getFiles === "function") {
-      allFiles = vault.getFiles();
-    } else if (typeof vault.getMarkdownFiles === "function") {
-      allFiles = vault.getMarkdownFiles();
-    }
+    const allFiles = filesInFolder(vault, folder);
     return allFiles.filter(
       (f) => f.path.startsWith(`${folder}/`) && !f.path.startsWith(`${folder}/_backup/`) && !f.path.endsWith("/_backup")
     );
@@ -22054,7 +22376,7 @@ var WorkflowManager = class {
       };
     }
     await this.plugin.saveSettings();
-    new import_obsidian7.Notice(`[NutEgg] Reset workflow files to defaults. Previous files moved to ${backupFolder}`);
+    new import_obsidian9.Notice(`[NutEgg] Reset workflow files to defaults. Previous files moved to ${backupFolder}`);
   }
   /** Alias for backward compatibility */
   async syncToDefaults() {
@@ -22098,7 +22420,7 @@ var WorkflowManager = class {
           const builtinHash = simpleHash(builtinContent);
           let currentContent = "";
           const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-          if (file instanceof import_obsidian7.TFile) {
+          if (file instanceof import_obsidian9.TFile) {
             currentContent = await this.plugin.app.vault.read(file);
           } else if (await this.plugin.app.vault.adapter.exists(filePath)) {
             currentContent = await this.plugin.app.vault.adapter.read(filePath);
@@ -22153,7 +22475,7 @@ var WorkflowManager = class {
           const builtinHash = simpleHash(builtinContent);
           let currentContent = "";
           const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-          if (file instanceof import_obsidian7.TFile) {
+          if (file instanceof import_obsidian9.TFile) {
             currentContent = await this.plugin.app.vault.read(file);
           } else if (await this.plugin.app.vault.adapter.exists(filePath)) {
             currentContent = await this.plugin.app.vault.adapter.read(filePath);
@@ -22244,7 +22566,7 @@ var WorkflowManager = class {
       if (newFilesCreated > 0) {
         const pending = this.getPendingWorkflowUpdates();
         if (pending.length > 0) {
-          new import_obsidian7.Notice(`[NutEgg] ${t("workflowUpdateNotice", { files: pending.join(", ") })}`, 1e4);
+          new import_obsidian9.Notice(`[NutEgg] ${t("workflowUpdateNotice", { files: pending.join(", ") })}`, 1e4);
         }
       }
       return { workflowsUpdated, eggsUpdated, newFilesCreated, errors };
@@ -22256,19 +22578,14 @@ var WorkflowManager = class {
   getEggFiles() {
     const folder = this.plugin.vaultFolder || "nutegg";
     const vault = this.plugin.app.vault;
-    let allFiles = [];
-    if (typeof vault.getMarkdownFiles === "function") {
-      allFiles = vault.getMarkdownFiles();
-    } else if (typeof vault.getFiles === "function") {
-      allFiles = vault.getFiles();
-    }
+    const allFiles = filesInFolder(vault, folder);
     return allFiles.filter((f) => isEggPath(f.path, folder));
   }
   /** Helper to write or modify a workflow file */
   async writeWorkflowFile(filename, content) {
     const filePath = `${this.workflowFolder}/${filename}`;
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof import_obsidian7.TFile) {
+    if (file instanceof import_obsidian9.TFile) {
       await this.plugin.app.vault.modify(file, content);
     } else if (await this.plugin.app.vault.adapter.exists(filePath)) {
       await this.plugin.app.vault.adapter.write(filePath, content);
@@ -22277,7 +22594,7 @@ var WorkflowManager = class {
     }
   }
   async onFileChanged(file) {
-    if (!(file instanceof import_obsidian7.TFile) || !file.path.startsWith(this.workflowFolder)) {
+    if (!(file instanceof import_obsidian9.TFile) || !file.path.startsWith(this.workflowFolder)) {
       return;
     }
     const filename = file.name;
@@ -22300,8 +22617,8 @@ var WorkflowManager = class {
       this.cache.delete(filename);
     }
   }
-  async ensureFolder(path2) {
-    const parts = path2.split("/");
+  async ensureFolder(path3) {
+    const parts = path3.split("/");
     let currentPath = "";
     for (const part of parts) {
       if (!part)
@@ -22319,7 +22636,7 @@ var WorkflowManager = class {
 };
 
 // src/main.ts
-var NutEggPlugin = class extends import_obsidian8.Plugin {
+var NutEggPlugin = class extends import_obsidian10.Plugin {
   nativeClient;
   get aiClient() {
     return this.nativeClient;
@@ -22333,6 +22650,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
     this.nativeClient = client;
   }
   chatgpt;
+  chatgptStartupError = "";
   chatgptCredit() {
     const status = this.chatgpt?.status();
     return {
@@ -22375,7 +22693,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
   getNativeSettings() {
     const config = { ...this.settings, ...this.settings.nativeApiConfig, aiAuthMethod: "apiKey", aiApiKey: "" };
     config.aiApiKey = this.settings.nativeApiKeyRef ? this.app?.secretStorage?.getSecret(this.settings.nativeApiKeyRef) || "" : this.settings.aiApiKey || "";
-    const fallbackSubscription = this.settings.subscriptionEnabled && this.settings.aiAuthMethod === "subscription" ? {
+    const fallbackSubscription = this.settings.aiAuthMethod === "subscription" ? {
       mode: "subscription",
       subscription: this.settings.subscriptionSelection || {
         provider: this.settings.aiProvider,
@@ -22410,7 +22728,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       ...previous,
       executionState: structuredClone(state),
       chatgptModel: state.chatgpt?.available ? state.chatgpt.model : previous.chatgptModel,
-      subscriptionEnabled: state.subscriptionAvailable,
+      subscriptionEnabled: true,
       subscriptionSelection: state.subscription,
       aiAuthMethod: state.mode
     };
@@ -22495,7 +22813,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
     this.workflowManager = new WorkflowManager(this);
     this.subscriptions = new SubscriptionService(
       this.settings.subscriptionPaths,
-      () => this.settings.subscriptionEnabled === true && this.settings.aiAuthMethod === "subscription" && (!this.settings.executionState || this.settings.executionState.transition === "ready")
+      () => this.settings.aiAuthMethod === "subscription" && (!this.settings.executionState || this.settings.executionState.transition === "ready")
     );
     try {
       const vaultPath = this.app.vault.adapter.getBasePath?.();
@@ -22514,7 +22832,8 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
         store.close();
         throw error;
       }
-    } catch {
+    } catch (error) {
+      this.chatgptStartupError = chatgptStartupDiagnostic(error);
     }
     this.connectionAccess = new ConnectionAccess(
       this.settings.chromeConnections ||= {},
@@ -22545,10 +22864,10 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       );
     try {
       await this.server.start();
-      new import_obsidian8.Notice(t("serverStarted", { port: this.settings.serverPort }));
+      new import_obsidian10.Notice(t("serverStarted", { port: this.settings.serverPort }));
     } catch (err) {
       console.error("[NutEgg] Failed to start server:", err);
-      new import_obsidian8.Notice(t("serverFailed"));
+      new import_obsidian10.Notice(t("serverFailed"));
     }
     this.settingsTab = new NutEggSettingTab(this.app, this);
     this.addSettingTab(this.settingsTab);
@@ -22581,7 +22900,6 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
     this.addRibbonIcon("coins", t("ribbonCheckCredit"), async () => {
       await this.updateCreditStatusBar(true);
     });
-    this.registerSubscriptionCommands();
     this.addCommand({
       id: "nutegg-new-egg",
       name: t("cmdNewEgg"),
@@ -22599,7 +22917,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
           const leaf = this.app.workspace.getLeaf(false);
           await leaf.openFile(file);
         } else {
-          new import_obsidian8.Notice(t("indexNotFound", { path: indexPath }));
+          new import_obsidian10.Notice(t("indexNotFound", { path: indexPath }));
         }
       }
     });
@@ -22609,22 +22927,22 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       callback: async () => {
         const activeFile = this.app.workspace.getActiveFile();
         if (!activeFile) {
-          new import_obsidian8.Notice(t("noActiveFile"));
+          new import_obsidian10.Notice(t("noActiveFile"));
           return;
         }
         if (!isEggPath(activeFile.path, this.vaultFolder)) {
-          new import_obsidian8.Notice(t("notEggNote"));
+          new import_obsidian10.Notice(t("notEggNote"));
           return;
         }
-        new import_obsidian8.Notice(t("mergingEntries", { name: activeFile.basename }));
-        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+        new import_obsidian10.Notice(t("mergingEntries", { name: activeFile.basename }));
+        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
         const cm = activeView?.editor?.cm;
         const docText = cm ? cm.state.doc.toString() : null;
         const result = await runMerge(this, activeFile.path, docText);
         if (result && result.entries > 0) {
-          new import_obsidian8.Notice(t("mergedEntries", { count: result.entries }));
+          new import_obsidian10.Notice(t("mergedEntries", { count: result.entries }));
         } else {
-          new import_obsidian8.Notice(t("noUnprocessed"));
+          new import_obsidian10.Notice(t("noUnprocessed"));
         }
       }
     });
@@ -22648,21 +22966,21 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       callback: async () => {
         const lang = this.settings.outputLanguage || "same-as-content";
         const isEnglishOrSame = !lang || lang === "same-as-content" || lang.toLowerCase() === "english";
-        new import_obsidian8.Notice(
+        new import_obsidian10.Notice(
           `[NutEgg] ${isEnglishOrSame ? t("revertingWorkflows") : t("localizingWorkflows", { language: lang })}`
         );
         try {
           const res = await this.workflowManager.localizeAll(lang);
           if (isEnglishOrSame) {
-            new import_obsidian8.Notice(`[NutEgg] ${t("revertedSuccess")}`);
+            new import_obsidian10.Notice(`[NutEgg] ${t("revertedSuccess")}`);
           } else {
-            new import_obsidian8.Notice(
+            new import_obsidian10.Notice(
               `[NutEgg] ${t("localizedSuccess", { language: lang })}${res.newFilesCreated > 0 ? ` (${res.newFilesCreated} .new.md)` : ""}`
             );
           }
         } catch (err) {
           console.error("[NutEgg] Localization error:", err);
-          new import_obsidian8.Notice(`[NutEgg] ${t("localizationFailed", { error: err?.message || String(err) })}`);
+          new import_obsidian10.Notice(`[NutEgg] ${t("localizationFailed", { error: err?.message || String(err) })}`);
         }
       }
     });
@@ -22708,29 +23026,6 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       setting.openTabById(this.manifest.id);
     }
   }
-  registerSubscriptionCommands() {
-    for (const enabled of [true, false])
-      this.addCommand({
-        id: enabled ? "nutegg-enable-subscriptions" : "nutegg-disable-subscriptions",
-        name: t(enabled ? "subscriptionEnableCommand" : "subscriptionDisableCommand"),
-        checkCallback: (checking) => {
-          if (this.settings.subscriptionEnabled === enabled)
-            return false;
-          if (!checking)
-            void (async () => {
-              await this.server.changeAvailability(enabled);
-              this.aiClient = new AIClient(this.settings, this.subscriptions);
-              this.aiProcessor = new AIProcessor(this);
-              this.settingsTab?.display();
-              this.updateCreditStatusBar?.();
-              new import_obsidian8.Notice(t(enabled ? "subscriptionSetupInstructions" : "subscriptionDisabledTitle"), 12e3);
-              if (enabled)
-                this.openSettings();
-            })();
-          return true;
-        }
-      });
-  }
   refreshSettingsTab() {
     this.settingsTab?.display();
   }
@@ -22745,7 +23040,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       this.creditStatusBarItem.addClass("mod-warning");
       this.creditStatusBarItem.style.cursor = "pointer";
       if (showNotice) {
-        new import_obsidian8.Notice(t("setupAiKeyTooltip"));
+        new import_obsidian10.Notice(t("setupAiKeyTooltip"));
         this.openSettings();
       }
       return;
@@ -22769,7 +23064,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
         if (credit.subscriptionState !== "ready" && credit.subscriptionState !== "signing_in")
           this.creditStatusBarItem.addClass("mod-warning");
         if (showNotice)
-          new import_obsidian8.Notice(`${credit.statusText} \xB7 ${credit.usageRemaining || t("subscriptionUsageUnavailable")}`);
+          new import_obsidian10.Notice(`${credit.statusText} \xB7 ${credit.usageRemaining || t("subscriptionUsageUnavailable")}`);
       } else if (credit.hasBalance && credit.balanceFormatted) {
         this.creditStatusBarItem.setText(`\u{1FA99} ${credit.balanceFormatted}`);
         this.creditStatusBarItem.setAttribute(
@@ -22777,7 +23072,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
           t("creditRefreshHint", { details: `NutEgg AI (${credit.providerLabel}): ${credit.statusText}` })
         );
         if (showNotice) {
-          new import_obsidian8.Notice(`[NutEgg] ${credit.providerLabel}: ${credit.statusText}`);
+          new import_obsidian10.Notice(`[NutEgg] ${credit.providerLabel}: ${credit.statusText}`);
         }
       } else {
         const label = this.settings.aiProvider === "openrouter" ? "OpenRouter" : credit.providerLabel;
@@ -22787,7 +23082,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
           t("creditRefreshHint", { details: `NutEgg AI: ${credit.statusText}` })
         );
         if (showNotice) {
-          new import_obsidian8.Notice(`[NutEgg] ${t("providerStatus", { provider: credit.providerLabel, status: credit.statusText })}`);
+          new import_obsidian10.Notice(`[NutEgg] ${t("providerStatus", { provider: credit.providerLabel, status: credit.statusText })}`);
         }
       }
     } catch {
@@ -22838,6 +23133,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
   async loadSettings() {
     const data = await this.loadData() || {};
     this.settings = normalizeAISettings(Object.assign({}, DEFAULT_SETTINGS, data));
+    this.settings.subscriptionEnabled = true;
     const legacyKey = this.settings.aiApiKey;
     let movedLegacyFile;
     if (legacyKey) {
@@ -22873,17 +23169,6 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       localApiType: DEFAULT_SETTINGS.localApiType,
       aiApiKey: ""
     };
-    if (!this.settings.subscriptionEnabled && this.settings.aiAuthMethod === "subscription") {
-      if (["openai", "anthropic", "google"].includes(this.settings.aiProvider)) {
-        this.settings.subscriptionSelection = {
-          provider: this.settings.aiProvider,
-          model: this.settings.aiModel || "auto"
-        };
-      }
-      this.settings.aiAuthMethod = "apiKey";
-      this.settings.aiApiKey = "";
-      this.settings.aiModel = "";
-    }
     if (legacyKey) {
       try {
         await this.saveData({
@@ -22911,7 +23196,7 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
         return;
       }
     }
-    const isSubscription = this.settings.subscriptionEnabled && this.settings.aiAuthMethod === "subscription";
+    const isSubscription = this.settings.aiAuthMethod === "subscription";
     if (isSubscription && ["openai", "anthropic", "google"].includes(this.settings.aiProvider)) {
       this.settings.subscriptionSelection = {
         provider: this.settings.aiProvider,
@@ -22943,11 +23228,11 @@ var NutEggPlugin = class extends import_obsidian8.Plugin {
       if (!existing) {
         await this.app.vault.create(indexPath, INDEX_TEMPLATE);
         console.log(`[NutEgg] Created ${indexPath}`);
-        for (const { path: path2, content } of EXAMPLE_EGGS) {
-          if (!await this.app.vault.adapter.exists(path2)) {
+        for (const { path: path3, content } of EXAMPLE_EGGS) {
+          if (!await this.app.vault.adapter.exists(path3)) {
             try {
-              await this.app.vault.create(path2, content);
-              console.log(`[NutEgg] Created ${path2}`);
+              await this.app.vault.create(path3, content);
+              console.log(`[NutEgg] Created ${path3}`);
             } catch {
             }
           }
